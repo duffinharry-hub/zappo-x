@@ -447,23 +447,10 @@ static void compose(int fresh) {
 		/* a GPU done in software draws each whole-screen layer slowly: put
 		 * them together here and give it one */
 		static uint32_t mix[SCREEN_W * SCREEN_H];
-		static SceneQuad q[256];
-		memcpy(mix, soft_bg, sizeof mix);
 		uint64_t now = now_ms();
 		float dt = scene_last ? (now - scene_last) / 1000.0f : 0.033f;
 		scene_last = now;
-		scene_draw_soft(mix, SCREEN_W, SCREEN_H, q, scene_update(dt, q, 256));
-		for (int i = 0; i < SCREEN_W * SCREEN_H; i++) {
-			uint32_t c = canvas[i], ca = c >> 24;
-			if (ca == 255) mix[i] = c;
-			else if (ca) {
-				uint32_t d = mix[i], ia = 255 - ca;
-				uint32_t r = ((c >> 16) & 255) + ((d >> 16) & 255) * ia / 255;
-				uint32_t g = ((c >> 8) & 255) + ((d >> 8) & 255) * ia / 255;
-				uint32_t b = (c & 255) + (d & 255) * ia / 255;
-				mix[i] = 0xFF000000u | (r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
-			}
-		}
+		scene_compose_soft(mix, soft_bg, canvas, SCREEN_W, SCREEN_H, dt);
 		SDL_UpdateTexture(bgtex, NULL, mix, SCREEN_W * 4);
 		SDL_RenderCopy(ren, bgtex, NULL, NULL);
 	} else {

@@ -68,11 +68,15 @@ int net_bt_list(BtDev *out, int max);  /* paired first, then the ones found near
 /* ------------------------------------------------------- Send to Zappo */
 
 /* the little web page for sending files from a phone or PC (send-to-zappo.py),
- * running only while its screen is open */
+ * running only while its screen is open (netapps.c: on the handheld and on a
+ * tablet) */
 int net_send_start(void);        /* 0 = running */
 void net_send_stop(void);
 int net_send_running(void);
 int net_send_received(char names[][96], int max);  /* newest first */
+/* the address to open on the phone or PC: 1; 0 while Zappo is still finding
+ * out (Wi-Fi being checked); -1 not on Wi-Fi */
+int net_send_url(char *url, size_t n);
 
 /* --------------------------------------------------- RetroAchievements */
 
@@ -97,9 +101,11 @@ typedef struct {
 	char system[64], game[128], error[160];
 } ArtStatus;
 
-int net_art_start(const char *folders);  /* Knulli's folders, comma separated ("" = all); 0 = started */
+int net_art_start(const char *folders);  /* console folders, comma separated ("" = all); 0 = started */
 void net_art_stop(void);
 void net_art_status(ArtStatus *out);
 int net_art_finished(char *msg, size_t n); /* once, when a job Zappo watched ends: what to say */
+
+int netapps_poll(void);  /* (net_poll's part for these two) */
 
 #endif

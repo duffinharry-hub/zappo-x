@@ -17,6 +17,10 @@ there are never replaced.
 
   get-box-art.py [--systems gba,snes] [--roms DIR] [--source URL|DIR] [--no-tgdb]
 
+On a tablet (Zappo X in Termux) the card is laid out as GarlicOS's:
+  get-box-art.py --layout garlic --roms ~/zappo-card/mmc/Roms --home DIR
+saves Roms/<CONSOLE>/Imgs/<game>.png instead, and there is no gamelist.
+
 Zappo X starts it from Settings > Games > Get box art and shows how it's going
 from the status file (/tmp/zappo-x-art.status, "key=value" lines). It runs at
 low priority, so it can keep going while a game is played.
@@ -96,11 +100,44 @@ TGDB = {"gb": 4, "gbc": 41, "sgb": 4, "gba": 5, "nds": 8, "nes": 7, "fds": 4936,
         "vectrex": 4939, "c64": 40, "amiga500": 4911, "amstradcpc": 4914, "zxspectrum": 4913, "msx1": 4929,
         "3do": 25}
 
+# GarlicOS's folder (the tablet's card, as the handheld's first card) -> the same
+# collections; the same list as the PC kit's Get box art (pc/tools/get-game-art.ps1)
+GARLIC = {
+    "GB": ["Nintendo - Game Boy"], "GBC": ["Nintendo - Game Boy Color"],
+    "SGB": ["Nintendo - Game Boy", "Nintendo - Game Boy Color"],
+    "GBA": ["Nintendo - Game Boy Advance"], "GPSP": ["Nintendo - Game Boy Advance"],
+    "FC": ["Nintendo - Nintendo Entertainment System"], "NESTOPIA": ["Nintendo - Nintendo Entertainment System"],
+    "FDS": ["Nintendo - Family Computer Disk System"], "SFC": ["Nintendo - Super Nintendo Entertainment System"],
+    "SUFAMI": ["Nintendo - Sufami Turbo"], "SATELLAVIEW": ["Nintendo - Satellaview"], "VB": ["Nintendo - Virtual Boy"],
+    "POKE": ["Nintendo - Pokemon Mini"],
+    "MD": ["Sega - Mega Drive - Genesis"], "MS": ["Sega - Master System - Mark III"], "GG": ["Sega - Game Gear"],
+    "SEGACD": ["Sega - Mega-CD - Sega CD"], "THIRTYTWOX": ["Sega - 32X"], "SEGASGONE": ["Sega - SG-1000"],
+    "PS": ["Sony - PlayStation"],
+    "PCE": ["NEC - PC Engine - TurboGrafx 16"], "PCECD": ["NEC - PC Engine CD - TurboGrafx-CD"],
+    "SGFX": ["NEC - PC Engine SuperGrafx"], "PCFX": ["NEC - PC-FX"],
+    "NEOCD": ["SNK - Neo Geo CD"], "NGP": ["SNK - Neo Geo Pocket", "SNK - Neo Geo Pocket Color"],
+    "WS": ["Bandai - WonderSwan", "Bandai - WonderSwan Color"],
+    "LYNX": ["Atari - Lynx"], "ATARI": ["Atari - 2600"], "FIFTYTWOHUNDRED": ["Atari - 5200"],
+    "SEVENTYEIGHTHUNDRED": ["Atari - 7800"], "JAGUAR": ["Atari - Jaguar"], "ATARIST": ["Atari - ST"],
+    "PANASONIC": ["The 3DO Company - 3DO"], "COLECO": ["Coleco - ColecoVision"], "INTELLIVISION": ["Mattel - Intellivision"],
+    "VECTREX": ["GCE - Vectrex"], "ODYSSEY": ["Magnavox - Odyssey2"], "VIDEOPAC": ["Magnavox - Odyssey2"],
+    "FAIRCHILD": ["Fairchild - Channel F"], "SUPERVISION": ["Watara - Supervision"], "MEGADUCK": ["Welback - Mega Duck"],
+    "COMMODORE": ["Commodore - 64"], "AMIGA": ["Commodore - Amiga"], "AMIGACD": ["Commodore - CD32"],
+    "CPC": ["Amstrad - CPC"], "ZXS": ["Sinclair - ZX Spectrum"], "MSX": ["Microsoft - MSX", "Microsoft - MSX2"],
+    "X68000": ["Sharp - X68000"],
+}
+GARLIC_TGDB = {"GB": 4, "GBC": 41, "GBA": 5, "GPSP": 5, "SGB": 4, "FC": 7, "NESTOPIA": 7, "FDS": 4936, "SFC": 6,
+               "VB": 4918, "MD": 18, "MS": 35, "GG": 20, "SEGACD": 21, "THIRTYTWOX": 33, "PS": 10, "PCE": 34,
+               "NGP": 4922, "WS": 4925, "LYNX": 4924, "ATARI": 22, "SEVENTYEIGHTHUNDRED": 27, "JAGUAR": 28,
+               "COLECO": 31, "INTELLIVISION": 32, "VECTREX": 4939, "COMMODORE": 40, "AMIGA": 4911, "CPC": 4914,
+               "ZXS": 4913, "MSX": 4929, "PANASONIC": 25, "NEOCD": 4956, "PCFX": 4930}
+GARLIC_LAYOUT = False  # --layout garlic: Roms/<CONSOLE>/Imgs/<game>.png
+
 # not games: saves, pictures, notes, the second half of a CD image ...
 SKIP_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".txt", ".nfo", ".pdf", ".srm", ".sav", ".state", ".cfg", ".xml",
             ".dat", ".ips", ".bps", ".ups", ".json", ".db", ".ini", ".log", ".md", ".htm", ".html", ".mp4",
             ".mkv", ".avi", ".bak", ".part"}
-SKIP_DIRS = {"images", "videos", "manuals", "media", "downloaded_images", "downloaded_videos", "bios", "saves"}
+SKIP_DIRS = {"images", "imgs", "videos", "manuals", "media", "downloaded_images", "downloaded_videos", "bios", "saves"}
 SUFFIXES = ["-image", "-thumb", "-boxart", ""]  # the pictures Zappo X shows, in its order
 
 STOP = threading.Event()
@@ -354,8 +391,23 @@ def es_systems(roms):
     return out
 
 
+def pic_dir(folder):
+    return os.path.join(folder, "Imgs" if GARLIC_LAYOUT else "images")
+
+
+def pic_path(folder, stem):
+    """where a new picture goes"""
+    return os.path.join(pic_dir(folder), stem + (".png" if GARLIC_LAYOUT else "-image.png"))
+
+
 def art_for(folder, stem):
     """the picture Zappo X would show for this game, if there is one"""
+    if GARLIC_LAYOUT:
+        for ext in ("png", "jpg"):
+            p = os.path.join(folder, "Imgs", stem + "." + ext)
+            if os.path.exists(p):
+                return p
+        return None
     for suf in SUFFIXES:
         for ext in ("png", "jpg"):
             p = os.path.join(folder, "images", stem + suf + "." + ext)
@@ -448,24 +500,36 @@ class Status:
 
 
 def main():
-    global ARCADE_NAMES
+    global ARCADE_NAMES, GARLIC_LAYOUT, LIBRETRO, TGDB, ARCADE
     ap = argparse.ArgumentParser(description="Box art for Zappo X from the libretro thumbnail library")
-    ap.add_argument("--roms", default="/userdata/roms")
-    ap.add_argument("--systems", default="", help="Knulli folders, comma separated (default: all)")
+    ap.add_argument("--layout", choices=["knulli", "garlic"], default="knulli",
+                    help="garlic: Roms/<CONSOLE>/Imgs/<game>.png (Zappo X on a tablet)")
+    ap.add_argument("--roms", default="")
+    ap.add_argument("--home", default=HOME, help="Zappo X's folder (logs, cache, box-art-source)")
+    ap.add_argument("--systems", default="", help="console folders, comma separated (default: all)")
     ap.add_argument("--source", default="https://thumbnails.libretro.com")
-    ap.add_argument("--status", default="/tmp/zappo-x-art.status")
-    ap.add_argument("--log", default=HOME + "/logs/box-art.txt")
-    ap.add_argument("--cache", default=HOME + "/cache/box-art")
+    ap.add_argument("--status", default="")
+    ap.add_argument("--log", default="")
+    ap.add_argument("--cache", default="")
     ap.add_argument("--max", type=int, default=320, help="biggest picture side")
     ap.add_argument("--no-tgdb", action="store_true")
     ap.add_argument("--no-gamelist", action="store_true")
     ap.add_argument("--es-systems", default="", help="es_systems file to read instead of Knulli's")
     ap.add_argument("--arcade-names", default=ARCADE_NAMES, help="Knulli's arcade name list")
     a = ap.parse_args()
+    if a.layout == "garlic":
+        GARLIC_LAYOUT = True
+        LIBRETRO, TGDB, ARCADE = GARLIC, GARLIC_TGDB, set()
+        a.no_gamelist = True
+        ES_SYSTEMS[:] = []
+    a.roms = a.roms or ("Roms" if GARLIC_LAYOUT else "/userdata/roms")
+    a.status = a.status or os.path.join(os.environ.get("TMPDIR", "/tmp"), "zappo-x-art.status")
+    a.log = a.log or os.path.join(a.home, "logs", "box-art.txt")
+    a.cache = a.cache or os.path.join(a.home, "cache", "box-art")
     # another copy of the library (a mirror, or a folder laid out the same way)
     # can be named in zappo-x/box-art-source
     try:
-        with open(HOME + "/box-art-source", encoding="utf-8") as f:
+        with open(os.path.join(a.home, "box-art-source"), encoding="utf-8") as f:
             alt = f.readline().strip()
         if alt and a.source == ap.get_default("source"):
             a.source = alt
@@ -480,10 +544,11 @@ def main():
         pass
 
     # Knulli's battery saver would put the handheld to sleep with nobody pressing buttons
-    pause = "/var/run/battery-saver/get-box-art.pause"
+    pause = None if GARLIC_LAYOUT else "/var/run/battery-saver/get-box-art.pause"
     try:
-        os.makedirs(os.path.dirname(pause), exist_ok=True)
-        open(pause, "w").close()
+        if pause:
+            os.makedirs(os.path.dirname(pause), exist_ok=True)
+            open(pause, "w").close()
     except OSError:
         pause = None
     try:
@@ -553,14 +618,14 @@ def run(a):
             done += len(todo)
             st.set(done=done)
             continue
-        os.makedirs(os.path.join(path, "images"), exist_ok=True)
+        os.makedirs(pic_dir(path), exist_ok=True)
         added = []
 
         def one(rel, stem):
             if STOP.is_set():
                 return None
             full = arcade_name(stem) if d in ARCADE else None
-            dest = os.path.join(path, "images", stem + "-image.png")
+            dest = pic_path(path, stem)
             hit = lib.find(cols, stem, full)
             if hit:
                 try:

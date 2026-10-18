@@ -547,3 +547,20 @@ void scene_draw_soft(uint32_t *dst, int dw, int dh, const SceneQuad *qs, int n) 
 			}
 	}
 }
+
+void scene_compose_soft(uint32_t *dst, const uint32_t *bg, const uint32_t *menu, int w, int h, float dt) {
+	static SceneQuad q[256];
+	memcpy(dst, bg, sizeof(uint32_t) * (size_t)(w * h));
+	scene_draw_soft(dst, w, h, q, scene_update(dt, q, 256));
+	for (int i = 0; i < w * h; i++) {
+		uint32_t c = menu[i], ca = c >> 24;
+		if (ca == 255) dst[i] = c;
+		else if (ca) {
+			uint32_t d = dst[i], ia = 255 - ca;
+			uint32_t r = ((c >> 16) & 255) + ((d >> 16) & 255) * ia / 255;
+			uint32_t g = ((c >> 8) & 255) + ((d >> 8) & 255) * ia / 255;
+			uint32_t b = (c & 255) + (d & 255) * ia / 255;
+			dst[i] = 0xFF000000u | (r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
+		}
+	}
+}

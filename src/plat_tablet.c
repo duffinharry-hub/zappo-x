@@ -12,6 +12,7 @@
  * (page folder, default ./web-native), ZAPPO_PORT (default 8640). */
 #include "plat.h"
 #include "music.h"
+#include "scene.h"
 #include "ui.h"
 #include "util.h"
 
@@ -318,16 +319,13 @@ static void *audio_thread(void *arg) {
 
 /* ----------------------------------------------------------- picture */
 
-extern double app_render_ms;
-void plat_present(void) {
-	double t = app_render_ms;
-	if (t > 0 && t < 1000) { render_ms[render_n % 600] = t; render_n++; }
+/* rows that changed since the page's copy, as RGB565: "F" y0 y1 then pixels */
+static void stream(const uint32_t *px) {
 	if (csock < 0) return;
-	/* rows that changed since the page's copy, as RGB565: "F" y0 y1 then pixels */
 	int y0 = -1, y1 = -1;
 	static uint16_t cur[SCREEN_W * SCREEN_H];
 	for (int y = 0; y < SCREEN_H; y++) {
-		const uint32_t *s = canvas + y * SCREEN_W;
+		const uint32_t *s = px + y * SCREEN_W;
 		uint16_t *d = cur + y * SCREEN_W;
 		for (int x = 0; x < SCREEN_W; x++) {
 			uint32_t p = s[x];
@@ -345,6 +343,53 @@ void plat_present(void) {
 	memcpy(sent + y0 * SCREEN_W, cur + y0 * SCREEN_W, n);
 	have_sent = 1;
 	ws_send(1, msg, n + 5);
+}
+
+/* The moving backgrounds: the background picture, the section's particles
+ * (scene.c) and the menu - drawn see-through - put together here, on the
+ * CPU, and streamed like any other picture. */
+static int scene_on;
+static uint64_t scene_last, scene_next;
+static int scene_ms = 50;	/* 20 frames a second */
+static uint32_t scene_bg[SCREEN_W * SCREEN_H], mixed[SCREEN_W * SCREEN_H];
+
+int plat_layers_ok(void) { return 1; }
+
+void plat_scene(const uint32_t *bg, int bg_changed, int element, int density) {
+	int on = bg != NULL;
+	if (on && bg_changed) memcpy(scene_bg, bg, sizeof scene_bg);
+	if (on != scene_on) scene_last = 0;
+	scene_on = on;
+	scene_set(on ? element : EL_NONE, density);
+}
+
+static void scene_send(void) {
+	uint64_t now = now_ms_();
+	float dt = scene_last ? (now - scene_last) / 1000.0f : 0.0f;
+	if (dt > 0.25f) dt = 0.25f;	/* (after a pause, carry on rather than jump) */
+	scene_last = now;
+	scene_compose_soft(mixed, scene_bg, canvas, SCREEN_W, SCREEN_H, dt);
+	stream(mixed);
+	scene_next = now_ms_() + (uint64_t)scene_ms;
+}
+
+int plat_scene_frame(void) {
+	if (!scene_on) return 0;
+	if (csock < 0) return 500;	/* nobody watching */
+	uint64_t now = now_ms_();
+	if (now < scene_next) return (int)(scene_next - now);
+	scene_send();
+	return scene_ms;
+}
+
+void plat_transition(void) {}
+
+extern double app_render_ms;
+void plat_present(void) {
+	double t = app_render_ms;
+	if (t > 0 && t < 1000) { render_ms[render_n % 600] = t; render_n++; }
+	if (scene_on) scene_send();
+	else stream(canvas);
 }
 
 uint32_t *plat_canvas(void) { return canvas; }

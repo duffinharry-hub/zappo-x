@@ -474,7 +474,7 @@ static int tab_list(int *out) {
 }
 
 static void enter_tab(int t) {
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 	if (t != tab && g_set.animations && layer_mode) plat_transition();
 #endif
 	tab = t;
@@ -621,7 +621,7 @@ static const uint32_t *layer_src;    /* what goes behind it */
 static unsigned layer_key;           /* which picture that is (0: changes every time) */
 static unsigned bg_gen = 1;          /* bg_img made again */
 static void layer_background(const uint32_t *px, unsigned key) { layer_src = px; layer_key = key; }
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 static const uint32_t *layer_src_shown;
 static unsigned layer_key_shown = ~0u;
 static uint32_t layer_buf[SCREEN_W * SCREEN_H];
@@ -632,7 +632,7 @@ static int section_element(void) {
 }
 #endif
 static void scene_publish(void) {
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 	if (!layer_mode || !layer_src) { plat_scene(NULL, 0, EL_NONE, 0); layer_key_shown = ~0u; return; }
 	int changed = layer_key == 0 || layer_key != layer_key_shown || layer_src != layer_src_shown;
 	layer_key_shown = layer_key;
@@ -643,7 +643,7 @@ static void scene_publish(void) {
 
 static void draw_background(void) {
 	uint32_t *cv = plat_canvas();
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 	if (layer_mode) {
 		if (shelf_screen()) {
 			gfx_bind(layer_buf, SCREEN_W, SCREEN_H);
@@ -1531,7 +1531,9 @@ static void kopt_set(int s, const char *opt, int v) {
 }
 static int cycle(int v, int n, int dir);
 static void kopt_cycle(int s, const char *opt, int dir) { kopt_set(s, opt, cycle(kopt(s, opt) + 1, 3, dir) - 1); }
+#endif
 
+#ifdef ZAPPO_APPS
 /* Settings > Games > Get box art: how it's going */
 static const char *art_label(char *b, size_t n) {
 	ArtStatus a;
@@ -1560,10 +1562,14 @@ static const char *art_help(void) {
 	return h;
 }
 static void art_start(const char *folders, const char *what) {
+#ifdef ZAPPO_KNULLI
 	WifiStatus ws;
 	net_wifi_status(&ws);
 	if (ws.known && (!ws.enabled || !ws.connected)) { toast("Box art comes over Wi-Fi: join a network in Settings > Wi-Fi first"); return; }
 	if (net_art_start(folders) != 0) { toast("Could not start getting box art"); return; }
+#else
+	if (net_art_start(folders) != 0) { toast("Could not start getting box art: run tablet/update.sh in Termux"); return; }
+#endif
 	toast("Getting box art for %s. Carry on, it works in the background", what);
 }
 #endif
@@ -1630,6 +1636,8 @@ static void menu_build(int menu, int arg) {
 			    "Pair controllers and headphones, connect and forget them.");
 			add(M_SEND, MK_SUB, "Send to Zappo", "", "Send games, songs and films from your phone or PC over Wi-Fi.");
 		}
+#elif defined(ZAPPO_TABLET)
+		add(M_SEND, MK_SUB, "Send to Zappo", "", "Send games, songs and films from your phone or PC over Wi-Fi.");
 #endif
 		add(M_ABOUT, MK_SUB, "About Zappo", "", "Version, device information and switching back to the " FW_NAME " menu.");
 		break;
@@ -1648,7 +1656,7 @@ static void menu_build(int menu, int arg) {
 		add(18, MK_CHOICE, "Videos", g_set.video_wall ? "Wall of pictures" : "List", "How the Videos tab looks. SELECT on the Videos tab also switches it.");
 		add(20, MK_CHOICE, "Text", (const char *[]){"Regular", "Firm", "Bold"}[CLAMP(g_set.font_weight, 0, 2)],
 		    "How heavy the writing is. Firm and Bold draw the theme's font thicker, so it reads better on the small screen.");
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 		add(22, MK_CHOICE, "Moving backgrounds", (const char *[]){"Off", "Fewer", "On"}[CLAMP(g_set.motion, 0, 2)],
 		    "Each section's Zappo element drifts behind the menus: Recent sparks, Favorites crystals, Consoles embers, "
 		    "Music drops, Videos snow, Settings leaves. Fewer: half as many.");
@@ -1673,7 +1681,12 @@ static void menu_build(int menu, int arg) {
 		add(4, MK_CHOICE, "Box art", onoff(g_set.show_art), "Shows each game's picture from roms/<console>/images, the same ones Knulli's menu uses.");
 		add(21, MK_ACTION, "Get box art", art_label(b, sizeof b), art_help());
 #else
+#ifdef ZAPPO_TABLET
+		add(4, MK_CHOICE, "Box art", onoff(g_set.show_art), "Shows Roms/<console>/Imgs/<game>.png next to games (Get box art, below, finds them).");
+		add(21, MK_ACTION, "Get box art", art_label(b, sizeof b), art_help());
+#else
 		add(4, MK_CHOICE, "Box art", onoff(g_set.show_art), "Shows Roms/<console>/Imgs/<game>.png next to games (the PC kit's \"Get box art\" finds them).");
+#endif
 #endif
 		add(5, MK_CHOICE, "Tidy game names", onoff(g_set.clean_names), "Hides tags like (USA) and [!] and shows full arcade titles.");
 		add(15, MK_CHOICE, "Continue where you left off", onoff(g_set.resume_games),
@@ -1790,6 +1803,10 @@ static void menu_build(int menu, int arg) {
 		if (v > 0) snfmt(b, sizeof b, "%d ms", v); else sncpy(b, "RetroArch setting", sizeof b);
 		add(10, MK_CHOICE, "Audio latency", b, "Higher values stop crackling on demanding games.");
 		add(11, MK_CHOICE, "Show FPS", onoff(sys_get_int(code, "fps", 0)), NULL);
+#ifdef ZAPPO_TABLET
+		if (strcmp(code, "VIDEOS") && strcmp(code, "PORTS") && !g_sys[s].is_import)
+			add(13, MK_ACTION, "Get box art", "", "Pictures for this console's games that have none, from the libretro thumbnail library, over Wi-Fi.");
+#endif
 #endif
 		add(12, MK_ACTION, "Reset this console", "", NULL);
 		{
@@ -2221,7 +2238,7 @@ static void menu_change(View *mv, int id, int dir) {
 		case 16: g_set.style = g_set.style == STYLE_GLASS ? STYLE_CLASSIC : STYLE_GLASS; apply_theme(); break;
 		case 17: g_set.music_layout = cycle(g_set.music_layout, MLAY_COUNT, dir); music_relayout(); break;
 		case 14: push_menu(M_CLOCK, 0); return;
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 		case 21: {
 			if (!activate) return;
 			ArtStatus a;
@@ -2352,6 +2369,13 @@ static void menu_change(View *mv, int id, int dir) {
 			break;
 		}
 		case 11: sys_set_int(code, "fps", !sys_get_int(code, "fps", 0)); break;
+#ifdef ZAPPO_TABLET
+		case 13:
+			if (!activate) return;
+			art_start(code, data_sys_name(arg));
+			dirty = 1;
+			return;
+#endif
 #endif
 		case 12:
 			if (!activate) return;
@@ -2532,16 +2556,18 @@ static void menu_change(View *mv, int id, int dir) {
 /* Send to Zappo: the address (and its QR code) for a phone or PC on the same
  * Wi-Fi, and what has arrived; leaving sorts it all (Import) */
 static void draw_send(void) {
-	WifiStatus ws;
-	net_wifi_status(&ws);
 	int x = PAD, y = CONTENT_Y + 10, w = SCREEN_W - PAD * 2;
-	if (!ws.connected || !ws.ip[0]) {
-		text_draw_wrap(F_BODY, x + 8, y + 40, w - 16, 3, ws.known ? "Connect the handheld to Wi-Fi first (Settings > Wi-Fi), then come back here." :
-		               "Checking the Wi-Fi...", g_theme.text, 1);
+	char url[80];
+	int ok = net_send_url(url, sizeof url);
+	if (ok <= 0) {
+#ifdef ZAPPO_TABLET
+		const char *why = "Connect this tablet to Wi-Fi first (Android's Settings), then come back here.";
+#else
+		const char *why = "Connect the handheld to Wi-Fi first (Settings > Wi-Fi), then come back here.";
+#endif
+		text_draw_wrap(F_BODY, x + 8, y + 40, w - 16, 3, ok < 0 ? why : "Checking the Wi-Fi...", g_theme.text, 1);
 		return;
 	}
-	char url[80];
-	snfmt(url, sizeof url, "http://%s:8640", ws.ip);
 	static uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(10)], tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
 	int qs = 0;
 	if (qrcodegen_encodeText(url, tmp, qr, qrcodegen_Ecc_MEDIUM, 1, 10, qrcodegen_Mask_AUTO, true)) {
@@ -2556,7 +2582,12 @@ static void draw_send(void) {
 	text_draw_wrap(F_SMALL, rx, y + 4, rw, 2, "On a phone or PC on the same Wi-Fi, scan the code or open:", g_theme.text_dim, 0);
 	text_draw_fit(F_TITLE, rx, y + 52, rw, url, g_theme.accent, 0);
 	text_draw_wrap(F_SMALL, rx, y + 104, rw, 3, net_send_running() ? "Games, songs, albums and films go to Import. Zappo sorts them when you leave this screen." :
-	               "The page didn't start (send-to-zappo.py).", g_theme.text_dim, 0);
+#ifdef ZAPPO_TABLET
+	               "The page didn't start: run tablet/update.sh in Termux (it adds Python).",
+#else
+	               "The page didn't start (send-to-zappo.py).",
+#endif
+	               g_theme.text_dim, 0);
 	char names[6][96];
 	int k = net_send_received(names, 6);
 	int ly = y + MAX(qs, 170) + 18;
@@ -2862,7 +2893,7 @@ void ui_render(void) {
 	gfx_bind(plat_canvas(), SCREEN_W, SCREEN_H);
 	layer_mode = 0;
 	layer_src = NULL;
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 	layer_mode = g_set.motion > 0 && plat_layers_ok() && !sleeping && g_state != UI_LAUNCH && !vprep && !saver && top()->type != V_SHOTS;
 #endif
 	ui_render_frame();

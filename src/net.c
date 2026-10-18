@@ -120,14 +120,8 @@ static void parse_refresh(void) {
 	st.known = 1;
 }
 
-static long send_seen = -1;
-static int send_check(void);
-
-static int art_check(void);
-
 int net_poll(void) {
-	if (art_check()) return 1;
-	if (send_check()) return 1;
+	if (netapps_poll()) return 1;
 	if (job_pid <= 0) {
 		if (queued_refresh >= 0) { int s = queued_refresh; queued_refresh = -1; net_wifi_refresh(s); }
 		else if (bt_queued >= 0) { int s = bt_queued; bt_queued = -1; net_bt_refresh(s); }
@@ -400,78 +394,6 @@ void net_bt_forget(const BtDev *d) {
 
 void net_bt_status(BtStatus *out) { *out = bst; }
 
-/* ------------------------------------------------------- Send to Zappo */
-
-#define RECEIVED "/tmp/zappo-x-received"
-static pid_t send_pid = -1;
-
-int net_send_start(void) {
-	if (send_pid > 0) return 0;
-	char script[300], model[64] = "the handheld";
-	snfmt(script, sizeof script, "%s/send-to-zappo.py", g_paths.clove);
-	FILE *f = fopen("/proc/device-tree/model", "r");
-	if (f) { if (!fgets(model, sizeof model, f)) sncpy(model, "the handheld", sizeof model); fclose(f); }
-	unlink(RECEIVED);
-	send_seen = 0;
-	pid_t pid = fork();
-	if (pid < 0) return -1;
-	if (pid == 0) {
-		int nul = open("/dev/null", O_RDWR);
-		if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); }
-		for (int i = 3; i < 1024; i++) close(i);
-		setsid();
-		char name[96];
-		snfmt(name, sizeof name, "Zappo X on %s", model);
-		setenv("ZAPPO_NAME", name, 1);
-		execl("/usr/bin/python3", "python3", script, "8640", (char *)NULL);
-		_exit(127);
-	}
-	send_pid = pid;
-	return 0;
-}
-
-void net_send_stop(void) {
-	if (send_pid <= 0) return;
-	kill(send_pid, SIGTERM);
-	for (int i = 0; i < 50; i++) {
-		if (waitpid(send_pid, NULL, WNOHANG) == send_pid) { send_pid = -1; return; }
-		usleep(20000);
-	}
-	kill(send_pid, SIGKILL);
-	waitpid(send_pid, NULL, 0);
-	send_pid = -1;
-}
-
-int net_send_running(void) {
-	if (send_pid > 0 && waitpid(send_pid, NULL, WNOHANG) == send_pid) send_pid = -1;
-	return send_pid > 0;
-}
-
-/* something new arrived: redraw */
-static int send_check(void) {
-	if (send_pid <= 0) return 0;
-	struct stat sb;
-	long sz = stat(RECEIVED, &sb) == 0 ? (long)sb.st_size : 0;
-	if (sz == send_seen) return 0;
-	send_seen = sz;
-	return 1;
-}
-
-int net_send_received(char names[][96], int max) {
-	char *txt = file_read_all(RECEIVED, NULL);
-	if (!txt) return 0;
-	char *lines[256];
-	int n = 0;
-	for (char *line = strtok(txt, "\n"); line && n < 256; line = strtok(NULL, "\n")) lines[n++] = line;
-	int k = 0;
-	for (int i = n - 1; i >= 0 && k < max; i--) {
-		char *t = strrchr(lines[i], '\t');
-		sncpy(names[k++], t ? t + 1 : lines[i], 96);
-	}
-	free(txt);
-	return k;
-}
-
 /* --------------------------------------------------- RetroAchievements */
 
 /* The same sign-in RetroArch makes (rcheevos' login2), sent as a form so the
@@ -503,133 +425,6 @@ int net_ra_take(RaResult *out) {
 	return 1;
 }
 
-/* ------------------------------------------------------------- Box art */
-
-#define ART_STATUS "/tmp/zappo-x-art.status"
-static pid_t art_pid = -1;   /* started by this Zappo X */
-static ArtStatus art;
-static long long art_seen = -1; /* the status file's mtime+size last read */
-static int art_watching;        /* seen running: say something when it ends */
-static int art_said = 1;
-
-static int alive(int pid) {
-	if (pid <= 0 || kill(pid, 0) != 0) return 0;
-	char p[64], cmd[512] = "";
-	snfmt(p, sizeof p, "/proc/%d/cmdline", pid);
-	FILE *f = fopen(p, "r");
-	if (!f) return 0;
-	size_t n = fread(cmd, 1, sizeof cmd - 1, f);
-	fclose(f);
-	for (size_t i = 0; i < n; i++) if (!cmd[i]) cmd[i] = ' ';
-	cmd[n] = 0;
-	return strstr(cmd, "get-box-art") != NULL;
-}
-
-static void art_read(void) {
-	char *txt = file_read_all(ART_STATUS, NULL);
-	ArtStatus a;
-	memset(&a, 0, sizeof a);
-	int pid = 0;
-	if (txt) {
-		for (char *line = strtok(txt, "\n"); line; line = strtok(NULL, "\n")) {
-			char *eq = strchr(line, '=');
-			if (!eq) continue;
-			*eq++ = 0;
-			if (!strcmp(line, "state")) sncpy(a.state, eq, sizeof a.state);
-			else if (!strcmp(line, "done")) a.done = atoi(eq);
-			else if (!strcmp(line, "total")) a.total = atoi(eq);
-			else if (!strcmp(line, "found")) a.found = atoi(eq);
-			else if (!strcmp(line, "already")) a.already = atoi(eq);
-			else if (!strcmp(line, "system")) sncpy(a.system, eq, sizeof a.system);
-			else if (!strcmp(line, "game")) sncpy(a.game, eq, sizeof a.game);
-			else if (!strcmp(line, "error")) sncpy(a.error, eq, sizeof a.error);
-			else if (!strcmp(line, "pid")) pid = atoi(eq);
-		}
-		free(txt);
-	}
-	if (art_pid > 0 && waitpid(art_pid, NULL, WNOHANG) == art_pid) art_pid = -1;
-	int going = !strcmp(a.state, "looking") || !strcmp(a.state, "getting");
-	a.running = art_pid > 0 || (going && alive(pid));
-	if (going && !a.running) sncpy(a.state, "stopped", sizeof a.state); /* (the handheld was switched off) */
-	if (a.running) { art_watching = 1; art_said = 0; }
-	art = a;
-}
-
-/* 1 when the status changed (redraw) */
-static uint64_t art_next_look;
-static int art_check(void) {
-	struct stat sb;
-	long long k = stat(ART_STATUS, &sb) == 0 ? (long long)sb.st_mtime * 1000003LL + sb.st_size : 0;
-	int look = k != art_seen;
-	/* a job can end without a last word (power off, killed): check now and then */
-	if (!look && art.running && now_ms() >= art_next_look) look = 1;
-	if (!look) return 0;
-	art_next_look = now_ms() + 2000;
-	art_seen = k;
-	ArtStatus before = art;
-	art_read();
-	return memcmp(&before, &art, sizeof art) != 0;
-}
-
-int net_art_start(const char *folders) {
-	art_check();
-	if (art.running) return 0;
-	char script[300];
-	snfmt(script, sizeof script, "%s/get-box-art.py", g_paths.clove);
-	if (!file_exists(script)) return -1;
-	FILE *f = fopen(ART_STATUS, "w");
-	if (f) { fprintf(f, "state=looking\n"); fclose(f); }
-	pid_t pid = fork();
-	if (pid < 0) return -1;
-	if (pid == 0) {
-		int nul = open("/dev/null", O_RDWR);
-		if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); }
-		for (int i = 3; i < 1024; i++) close(i);
-		setsid();	/* (keeps going while a game is played) */
-		execl("/usr/bin/python3", "python3", script, "--systems", folders ? folders : "", (char *)NULL);
-		_exit(127);
-	}
-	art_pid = pid;
-	art_seen = -1;
-	art_check();
-	art.running = 1;
-	sncpy(art.state, "looking", sizeof art.state);
-	art_watching = 1;
-	art_said = 0;
-	return 0;
-}
-
-void net_art_stop(void) {
-	art_check();
-	int pid = art_pid;
-	char *txt = file_read_all(ART_STATUS, NULL);
-	const char *p = txt ? strstr(txt, "\npid=") : NULL;
-	if (pid <= 0 && p && alive(atoi(p + 5))) pid = atoi(p + 5);
-	free(txt);
-	if (pid > 0) kill(pid, SIGTERM);
-	art_said = 1;	/* (the menu says so itself) */
-	art_watching = 0;
-	art.running = 0;
-	sncpy(art.state, "stopped", sizeof art.state);
-}
-
-void net_art_status(ArtStatus *out) {
-	if (art_seen < 0) art_check();
-	*out = art;
-}
-
-int net_art_finished(char *msg, size_t n) {
-	if (!art_watching || art.running || art_said) return 0;
-	art_said = 1;
-	art_watching = 0;
-	if (!strcmp(art.state, "failed")) snfmt(msg, n, "Box art: %s", art.error[0] ? art.error : "it didn't work");
-	else if (!strcmp(art.state, "stopped")) snfmt(msg, n, "Box art stopped after %d pictures", art.found);
-	else if (art.total == 0) snfmt(msg, n, "Every game already has box art");
-	else if (art.found == art.total) snfmt(msg, n, "Box art: found pictures for all %d games", art.total);
-	else snfmt(msg, n, "Box art: found %d of %d. The rest aren't in the library", art.found, art.total);
-	return 1;
-}
-
 int net_bt_list(BtDev *out, int max) {
 	int n = MIN(max, nbts);
 	memcpy(out, bts, sizeof(BtDev) * (size_t)n);
@@ -644,7 +439,7 @@ int net_wifi_list(WifiNet *out, int max) {
 
 #else /* other firmwares: nothing to manage from Zappo */
 
-int net_poll(void) { return 0; }
+int net_poll(void) { return netapps_poll(); }
 int net_busy(void) { return 0; }
 const char *net_job(void) { return ""; }
 const char *net_last_error(void) { return ""; }
@@ -660,16 +455,8 @@ void net_bt_connect(const BtDev *d, int on) { (void)d; (void)on; }
 void net_bt_forget(const BtDev *d) { (void)d; }
 void net_bt_status(BtStatus *out) { memset(out, 0, sizeof *out); }
 int net_bt_list(BtDev *out, int max) { (void)out; (void)max; return 0; }
-int net_send_start(void) { return -1; }
-void net_send_stop(void) {}
-int net_send_running(void) { return 0; }
-int net_send_received(char names[][96], int max) { (void)names; (void)max; return 0; }
 int net_wifi_list(WifiNet *out, int max) { (void)out; (void)max; return 0; }
 void net_ra_signin(const char *user, const char *pass) { (void)user; (void)pass; }
 int net_ra_take(RaResult *out) { (void)out; return 0; }
-int net_art_start(const char *folders) { (void)folders; return -1; }
-void net_art_stop(void) {}
-void net_art_status(ArtStatus *out) { memset(out, 0, sizeof *out); }
-int net_art_finished(char *msg, size_t n) { (void)msg; (void)n; return 0; }
 
 #endif

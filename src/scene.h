@@ -36,5 +36,8 @@ int scene_update(float dt, SceneQuad *out, int max);
 const uint32_t *scene_sprite(int sprite, int *w, int *h);
 /* draws the quads into an opaque 0xRRGGBB picture, without a GPU */
 void scene_draw_soft(uint32_t *dst, int w, int h, const SceneQuad *q, int n);
+/* the whole picture without a GPU: background, the particles moved on by dt,
+ * then the menu (see-through, premultiplied) over them */
+void scene_compose_soft(uint32_t *dst, const uint32_t *bg, const uint32_t *menu, int w, int h, float dt);
 
 #endif

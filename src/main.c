@@ -101,7 +101,7 @@ int app_frame(int wait) {
 		}
 	} else if (wait) {
 		int ms = ui_wait_ms();
-#ifdef ZAPPO_KNULLI
+#ifdef ZAPPO_APPS
 		/* the moving background: a new frame of it now and then */
 		int s = plat_scene_frame();
 		if (s > 0 && s < ms) ms = s;
