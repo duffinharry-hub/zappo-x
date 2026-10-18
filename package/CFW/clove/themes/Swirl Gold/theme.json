@@ -1,0 +1,29 @@
+{
+  "name": "Swirl Gold",
+  "colors": {
+    "background": "#3f2901",
+    "background2": "#1f1400",
+    "surface": "#261901aa",
+    "surface_highlight": "#704903cc",
+    "text": "#f6f8f4",
+    "text_dim": "#d8cfa4",
+    "accent": "#ffd34d",
+    "accent_text": "#2e2000",
+    "favorite": "#ffd479",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "background": "background.png",
+  "background_dim": 0,
+  "radius": 14,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

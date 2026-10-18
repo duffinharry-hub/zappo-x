@@ -1,0 +1,30 @@
+{
+  "name": "Zappo Ice",
+  "colors": {
+    "background": "#0c1726",
+    "background2": "#060c16",
+    "surface": "#14233a",
+    "surface_highlight": "#24395c",
+    "text": "#f4f9ff",
+    "text_dim": "#b4c8e2",
+    "accent": "#8fd3ff",
+    "accent_text": "#08203a",
+    "favorite": "#d8f1ff",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "radius": 12,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left",
+  "background": "background.png",
+  "background_dim": 70,
+  "background_sharp": true
+}

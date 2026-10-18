@@ -1,0 +1,20 @@
+{
+  "name": "Pocket Green",
+  "colors": {
+    "background": "#9bbc0f",
+    "background2": "#8bac0f",
+    "surface": "#8bac0f",
+    "surface_highlight": "#a7c62a",
+    "text": "#0f380f",
+    "text_dim": "#306230",
+    "accent": "#0f380f",
+    "accent_text": "#9bbc0f",
+    "favorite": "#0f380f",
+    "shadow": "#0f380f30"
+  },
+  "font": { "file": "Oswald-Regular.otf", "title": 28, "body": 23, "small": 18 },
+  "radius": 4,
+  "home_layout": "carousel",
+  "game_layout": "list",
+  "list_rows": 9
+}

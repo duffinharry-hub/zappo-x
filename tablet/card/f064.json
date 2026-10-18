@@ -1,0 +1,30 @@
+{
+  "name": "Zappo Water",
+  "colors": {
+    "background": "#061428",
+    "background2": "#030a16",
+    "surface": "#0c2240",
+    "surface_highlight": "#143a66",
+    "text": "#eef8ff",
+    "text_dim": "#a8c4e0",
+    "accent": "#3fc1ff",
+    "accent_text": "#021a30",
+    "favorite": "#9fe6ff",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "radius": 12,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left",
+  "background": "background.png",
+  "background_dim": 70,
+  "background_sharp": true
+}

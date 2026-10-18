@@ -1,0 +1,10 @@
+{
+ "GB": "gambatte_libretro.so",
+ "GBC": "gambatte_libretro.so",
+ "GBA": "mgba_libretro.so",
+ "FC": "fceumm_libretro.so",
+ "SFC": "snes9x_libretro.so",
+ "MD": "genesis_plus_gx_libretro.so",
+ "PS": "pcsx_rearmed_libretro.so",
+ "VIDEOS": "ffmpeg_libretro.so"
+}

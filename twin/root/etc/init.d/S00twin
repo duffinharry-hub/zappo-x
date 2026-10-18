@@ -1,0 +1,14 @@
+#!/bin/sh
+# Zappo X device twin: start the twin's helper before anything else.
+# (/var/run is not ready this early, so no pid file: stop finds it by name.)
+case "$1" in
+  start)
+    printf "Starting Zappo X twin helper: "
+    (setsid /usr/bin/python3 /usr/bin/zappo-twin-agent </dev/null >/dev/null 2>&1 &)
+    echo "OK"
+    ;;
+  stop)
+    pkill -f zappo-twin-agent
+    ;;
+esac
+exit 0

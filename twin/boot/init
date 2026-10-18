@@ -1,0 +1,48 @@
+#!/bin/ash
+# Zappo X device twin: first program the kernel runs.
+#
+# Does what the handheld's own start-up does - finds the card's system
+# partition (mmcblk0p3, the twin's SD card slot), mounts Knulli's system image
+# with a writable layer in memory on top, and starts Knulli - with one extra
+# step: the twin's helper files (/twin/root) are laid over the system first,
+# so the stick lights, battery and gamepad stand-ins come up with it.
+# Knulli's system image on the card is never changed.
+
+fail() { echo "twin init: $*"; exec /bin/ash; }
+
+mkdir -p /boot_root /new_root /overlay_root /sys /proc
+mount -t proc  -o nodev,noexec,nosuid proc  /proc || fail "proc"
+mount -t sysfs -o nodev,noexec,nosuid sysfs /sys  || fail "sysfs"
+mount -t devtmpfs none /dev                       || fail "devtmpfs"
+
+n=0
+until mount -o ro /dev/mmcblk0p3 /boot_root 2>/dev/null; do
+    n=$((n+1)); [ $n -gt 30 ] && fail "no card in the slot (mmcblk0p3)"
+    echo "twin init: waiting for the card"; sleep 1
+done
+
+mount -t tmpfs -o size=256M tmpfs /overlay_root || fail "tmpfs"
+mkdir /overlay_root/base /overlay_root/overlay /overlay_root/work /overlay_root/saved
+
+# Knulli keeps saved system changes in boot/overlay; bring them back as it does
+if [ -f /boot_root/boot/overlay ] && mount -o ro /boot_root/boot/overlay /overlay_root/saved; then
+    cp -pr /overlay_root/saved/* /overlay_root/overlay
+    umount /overlay_root/saved
+fi
+
+mount -o ro /boot_root/boot/batocera /overlay_root/base || fail "system image"
+mount -t overlay overlay -o rw,lowerdir=/overlay_root/base,upperdir=/overlay_root/overlay,workdir=/overlay_root/work /new_root || fail "overlay"
+
+# the twin's helpers, into the writable layer
+if [ -d /twin/root ]; then
+    cp -a /twin/root/. /new_root/
+    echo "twin init: twin helpers added"
+fi
+
+mount --move /boot_root    /new_root/boot
+mount --move /overlay_root /new_root/overlay
+mount --move /sys          /new_root/sys
+mount --move /proc         /new_root/proc
+mount --move /dev          /new_root/dev
+
+exec switch_root /new_root /sbin/init

@@ -1,0 +1,13 @@
+# Blockbox: a small voxel sandbox (bundled with Clove)
+display_name = "Blockbox"
+authors = "Clove"
+supported_extensions = "world|txt"
+corename = "Blockbox"
+categories = "Game"
+license = "MIT"
+permissions = ""
+display_version = "1.0"
+systemname = "Blockbox"
+supports_no_game = "true"
+savestate = "true"
+description = "Build and explore a blocky world. Each .world file is its own world, saved automatically."

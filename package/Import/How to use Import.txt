@@ -1,0 +1,19 @@
+IMPORT - drop games and music here
+==================================
+Copy games, music and BIOS files into this folder from your PC. The next time
+Clove opens, it moves each one into the right console folder in Roms.
+
+* Most games are recognised by their file type: .gba .gbc .gb .nes .sfc
+  .smc .md .sms .gg .pce .ngp .ws .lnx .a26 and many more.
+* PlayStation discs (.cue + .bin, .chd, .pbp, .m3u) are recognised too.
+* Arcade .zip files are recognised by their MAME name.
+* BIOS files (scph1001.bin, gba_bios.bin, disksys.rom, neogeo.zip ...)
+  go into the BIOS folder.
+* Music (.mp3 .flac .ogg .wav .m4a .aac .opus ...) goes into the Music
+  folder - single songs or whole album folders - and plays from the
+  Music tab. Music videos (.mp4 with a picture) go to Videos.
+* Not sure it'll be recognised? Make a folder in here named after the
+  console (GBA, SNES, PS1, Mega Drive, Arcade ...) and put it inside.
+
+Anything Clove can't place stays here and appears as "Import" in the
+Consoles list on the handheld, where you can choose the console.

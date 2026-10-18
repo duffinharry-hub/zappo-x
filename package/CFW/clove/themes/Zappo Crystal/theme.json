@@ -1,0 +1,30 @@
+{
+  "name": "Zappo Crystal",
+  "colors": {
+    "background": "#160c22",
+    "background2": "#0b0614",
+    "surface": "#221438",
+    "surface_highlight": "#3a2560",
+    "text": "#f6f0ff",
+    "text_dim": "#c4b4e0",
+    "accent": "#b57cff",
+    "accent_text": "#1c0b33",
+    "favorite": "#e2c8ff",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "radius": 12,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left",
+  "background": "background.png",
+  "background_dim": 70,
+  "background_sharp": true
+}

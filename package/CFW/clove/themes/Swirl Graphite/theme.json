@@ -1,0 +1,29 @@
+{
+  "name": "Swirl Graphite",
+  "colors": {
+    "background": "#09090c",
+    "background2": "#040406",
+    "surface": "#050607aa",
+    "surface_highlight": "#101116cc",
+    "text": "#f6f8f4",
+    "text_dim": "#bdc2c9",
+    "accent": "#c9d3e6",
+    "accent_text": "#11141a",
+    "favorite": "#ffd479",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "background": "background.png",
+  "background_dim": 0,
+  "radius": 14,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

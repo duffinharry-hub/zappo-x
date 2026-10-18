@@ -1,0 +1,29 @@
+{
+  "name": "Swirl Amber",
+  "colors": {
+    "background": "#361703",
+    "background2": "#1b0b01",
+    "surface": "#210e02aa",
+    "surface_highlight": "#602906cc",
+    "text": "#f6f8f4",
+    "text_dim": "#d8c69f",
+    "accent": "#ffb347",
+    "accent_text": "#2e1600",
+    "favorite": "#ffd479",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "background": "background.png",
+  "background_dim": 0,
+  "radius": 14,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

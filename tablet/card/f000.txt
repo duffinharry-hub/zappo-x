@@ -1,0 +1,61 @@
+CLOVE THEMES
+============
+
+A theme is a folder in CFW/clove/themes containing theme.json. Pick it in
+Settings > Appearance > Theme. Copy an existing theme folder to start.
+
+Every key is optional; anything missing uses the built-in "Clove" look.
+
+{
+  "name": "My Theme",
+
+  "colors": {
+    "background":        "#17151c",   top of the background gradient
+    "background2":       "#0e0d12",   bottom of the gradient
+    "surface":           "#221f29",   cards and panels
+    "surface_highlight": "#2e2a37",   selected cards, button badges
+    "text":              "#f4efe6",
+    "text_dim":          "#9a93a7",   secondary text
+    "accent":            "#c3a2f7",   selection highlight
+    "accent_text":       "#17151c",   text on the highlight
+    "favorite":          "#ffbf5c",   favourite stars
+    "shadow":            "#00000080"  #rrggbbaa: last two digits = opacity
+  },
+
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",   looked for in this theme
+                                               folder, then CFW/font
+    "title": 28, "body": 23, "small": 18       pixel sizes
+  },
+
+  "background": "bg.png",     image in this folder, 640x480 works best
+  "background_dim": 110,      0-255: darken the image so text stays readable
+  "background_sharp": true,   optional: show the image sharp behind every
+                              screen in the Glass style too, instead of the
+                              blurred lock screen picture (the Zappo element
+                              themes do this)
+  "radius": 12,               corner roundness, 0 = square
+  "home_layout": "carousel",  "carousel", "grid" or "list"
+  "game_layout": "list_art",  "list_art", "list" or "grid"
+  "list_rows": 9,             rows in lists (5-14)
+  "art_side": "right",        box art panel side: "right" or "left"
+  "text_align": "left",       "left" or "center" for game names
+
+  "labels": { "recent": "Recent", "favorites": "Favorites",
+              "consoles": "Consoles", "music": "Music",
+              "retroarch": "RetroArch", "settings": "Settings" },
+
+  "base": "garlic"            optional: start from your GarlicOS skin
+                              (CFW/skin/settings.json and background.png)
+}
+
+The screensaver shows the theme's own wallpaper.png (640x480) if the theme
+folder has one, else CFW/clove/wallpaper.png, else the theme's background.
+
+Console artwork: put PNGs named after the ROM folder (GBA.png, PS.png...)
+in a "system" folder inside the theme. Without them Clove uses
+CFW/skin/system, then CFW/clove/icons.
+
+Fonts that come with GarlicOS (in CFW/font): FiraSansCondensed-Regular.ttf,
+NotoSans-Regular.ttf, Oswald-Regular.otf. Any .ttf/.otf you copy into the
+theme folder works too.

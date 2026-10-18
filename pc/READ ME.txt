@@ -1,0 +1,77 @@
+ZAPPO 0.3.5 - Windows kit  (Linux / macOS: zappo.sh, see the end)
+=================================================================
+For the original Anbernic RG35XX (2022 model) running GarlicOS.
+Zappo replaces GarlicOS's menu; GarlicOS, RetroArch and the emulators stay
+as they are. "Zappo manual.txt" is the full guide to using it on the handheld.
+
+Install
+-------
+1. Back up your GarlicOS card (Win32 Disk Imager or balenaEtcher saves an
+   image of the whole card).
+2. Put the card in this PC. Windows shows its ROMS partition (the one with
+   the CFW, BIOS and Roms folders) as a drive; it may also show the small
+   boot partition (dmenu.bin, ramdisk.img).
+3. Run Zappo.bat and pick 1.
+4. Eject, card back in the handheld, switch on. The first start finishes
+   the install and opens Zappo.
+
+Everything the kit changes on the card can be undone from the same menu
+(U, V, X, R); what it replaces is kept in backups\.
+
+What the menu does
+------------------
+  1  Install / update      copies card\ onto the card; fixes the video
+                           player; boot pictures if the boot partition shows
+  2  Add films and music   from Downloads (and Downloads\music, Downloads\videos)
+                           to the card. Films the handheld can't play
+                           smoothly are shrunk first (ffmpeg, fetched once).
+  3  Unpack video zips     downloaded collections -> Downloads\videos\<name>\
+                           so they become folders on the Videos tab; then 2
+  4  Art                   box art for games (libretro library, TheGamesDB),
+                           film posters (Wikipedia, else a frame from the
+                           film), music covers (Deezer, iTunes)
+  5  Check the card        reads everything back; changes nothing
+  B  Boot pictures         Zappo's boot logo, charging screen and charging
+                           animation on the boot partition
+  C  Extra cores           installs a cores pack from Downloads (see below)
+  U/V/X/R                  undo cores / video player / boot pictures; remove Zappo
+
+The video player fix: GarlicOS's FFmpeg core closes whenever you skip. The
+kit changes 47 bytes of your own copy of that core (after checking it is the
+build the fix was made for) and keeps the original beside it. No core binary
+is shipped in this kit.
+
+The extra cores pack is the community "extra and updated rg35xx cores"
+(r/RG35XX, "FYI I'm still keeping RetroArch cores updated"): newer builds of
+12 of GarlicOS's cores compiled for this CPU, plus 5 alternatives. Download
+it into Downloads and press C. It is not part of Zappo and has its own
+licences (libretro cores are mostly GPL).
+
+Folders
+-------
+  card\      what goes on the card: CFW\clove (Zappo itself, fonts, themes,
+             lock screens), CFW\autostart\clove-install.sh (hands GarlicOS's
+             launcher over to Zappo at first start), the BLOCKBOX core and
+             worlds, empty Import, Music and Roms\VIDEOS folders
+  boot\      Zappo's boot pictures and the charging animation frames
+  tools\     the scripts behind the menu. video-names.txt, video-posters.txt
+             and game-art-names.txt steer names and pictures (notes inside).
+             tools\ffmpeg\ appears after the first film is shrunk.
+  backups\   what the kit replaced on your card (GarlicOS's video player,
+             cores, boot pictures), used by the undo options
+  logs\      a log of every run
+
+Source code and licence: https://github.com/CovGNG/zappo (MIT).
+Fonts are under the SIL Open Font License (card\CFW\clove\fonts\LICENSES-OFL.txt).
+
+Linux and macOS
+---------------
+zappo.sh does the same as Zappo.bat's install, remove, player fix and boot
+pictures, from a terminal with the card mounted (python3 is needed for the
+player fix and the charging animation):
+  ./zappo.sh install              install / update (finds the mounted card)
+  ./zappo.sh install /media/me/ROMS /media/me/BOOT    say where the partitions are
+  ./zappo.sh remove               GarlicOS's menu, player and pictures back
+  ./zappo.sh player undo          ./zappo.sh boot undo     one undo at a time
+Films, music, box art and the cores pack are Windows-only for now; on the
+handheld, the Import folder sorts whatever you copy in by hand.

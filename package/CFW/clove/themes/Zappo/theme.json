@@ -1,0 +1,29 @@
+{
+  "name": "Zappo",
+  "colors": {
+    "background": "#121426",
+    "background2": "#0a0b16",
+    "surface": "#1a1d33",
+    "surface_highlight": "#262a47",
+    "text": "#f6f3e8",
+    "text_dim": "#a3a9c9",
+    "accent": "#f5c842",
+    "accent_text": "#1a1407",
+    "favorite": "#c3a2f7",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "radius": 12,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left",
+  "background": "background.png",
+  "background_dim": 150
+}

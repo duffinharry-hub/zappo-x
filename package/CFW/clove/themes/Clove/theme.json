@@ -1,0 +1,22 @@
+{
+  "name": "Clove",
+  "colors": {
+    "background": "#17151c",
+    "background2": "#0e0d12",
+    "surface": "#221f29",
+    "surface_highlight": "#2e2a37",
+    "text": "#f4efe6",
+    "text_dim": "#9a93a7",
+    "accent": "#c3a2f7",
+    "accent_text": "#17151c",
+    "favorite": "#ffbf5c",
+    "shadow": "#00000080"
+  },
+  "font": { "file": "FiraSansCondensed-Regular.ttf", "title": 28, "body": 23, "small": 18 },
+  "radius": 12,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

@@ -1,0 +1,957 @@
+<meta charset="utf-8">
+<title>Zappo X Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Figtree:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* One look on purpose: a dark handheld on a dark desk, whatever the viewer's theme. */
+:root {
+  color-scheme: dark;
+  --desk: #0b0d14; --desk2: #121624;
+  --body: #1d1f27; --body-edge: #2c2f3a; --body-hi: #34384a;
+  --key: #12131a; --key-hi: #20222c; --key-txt: #8d93a8;
+  --ink: #e9ecf5; --ink-dim: #9aa1b8; --gold: #f5c842;
+  --ring: #f5c842;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: radial-gradient(120% 90% at 50% 0%, var(--desk2), var(--desk)); color: var(--ink);
+  font: 15px/1.45 Figtree, system-ui, sans-serif; overflow: hidden; touch-action: none; user-select: none;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.top { display: flex; align-items: center; gap: 12px; height: 46px; flex-wrap: nowrap; }
+.brand { font: 600 19px Fredoka, Figtree, sans-serif; letter-spacing: .3px; white-space: nowrap; }
+.brand b { color: var(--gold); font-weight: 600; }
+.chip { font: 500 12px "JetBrains Mono", ui-monospace, monospace; color: var(--ink-dim); background: #ffffff0d; border: 1px solid #ffffff14;
+  padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
+.spacer { flex: 1; min-width: 0; }
+.tbtn { font: 600 13px Figtree, sans-serif; color: var(--ink); background: #ffffff12; border: 1px solid #ffffff1f; border-radius: 10px;
+  padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+.tbtn:active { background: #ffffff26; }
+#stage { position: relative; height: calc(100% - 46px - 8px); display: grid; place-items: center; }
+#dev { position: absolute; left: 50%; top: 50%; width: 1064px; height: 500px; transform-origin: 0 0; }
+canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height: 480px; background: #000; border-radius: 10px;
+  box-shadow: 0 0 0 1px #ffffff14, 0 18px 50px #000c; }
+.key { position: absolute; display: grid; place-items: center; background: var(--key); color: var(--key-txt); font: 700 15px Figtree, sans-serif;
+  box-shadow: inset 0 -3px 0 #00000080, inset 0 1px 0 #ffffff14; cursor: pointer; touch-action: none; }
+.key.on { background: var(--key-hi); color: var(--ink); transform: translateY(1px); }
+.round { width: 52px; height: 52px; border-radius: 50%; font-size: 17px; }
+.pill { width: 62px; height: 22px; border-radius: 11px; font-size: 10px; letter-spacing: 1px; }
+.shoulder { height: 34px; width: 88px; border-radius: 14px 14px 8px 8px; font-size: 12px; top: 8px; }
+.dpad { position: absolute; left: 34px; top: 76px; width: 140px; height: 140px; }
+.dpad .key { width: 46px; height: 48px; border-radius: 8px; }
+.ring { position: absolute; width: 132px; height: 132px; }
+.ring svg { width: 100%; height: 100%; overflow: visible; }
+.ovl { position: absolute; left: 212px; top: 10px; width: 640px; height: 480px; display: grid; place-items: center; background: #090b12f0;
+  border-radius: 10px; text-align: center; padding: 28px; }
+.ovl h2 { font: 600 26px Fredoka, sans-serif; margin: 0 0 8px; }
+.ovl p { color: var(--ink-dim); margin: 6px 0; font-size: 16px; }
+.ovl .go { margin-top: 18px; font: 700 16px Figtree, sans-serif; color: #1a1407; background: var(--gold); border: 0; border-radius: 12px; padding: 12px 22px; cursor: pointer; }
+.ovl video { width: 100%; max-height: 330px; border-radius: 10px; background: #000; }
+.ovl code { font: 500 12px "JetBrains Mono", monospace; color: #c9cfe6; word-break: break-all; }
+.ovl .bar { width: 260px; height: 6px; background: #ffffff14; border-radius: 3px; overflow: hidden; margin: 14px auto 0; }
+.ovl .bar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .2s; }
+#turn { display: none; position: fixed; inset: 46px 0 0; place-items: center; text-align: center; color: var(--ink-dim); padding: 24px; }
+@media (orientation: portrait) and (max-width: 820px) { #turn { display: grid; } #stage { visibility: hidden; } }
+</style>
+
+<div class="top">
+  <div class="brand">Zappo <b>X</b> preview</div>
+  <span class="chip" id="speed">starting…</span>
+  <span class="chip" id="pad" hidden>controller</span>
+  <div class="spacer"></div>
+  <button class="tbtn" id="bench">Speed test</button>
+  <button class="tbtn" id="full">Full screen</button>
+</div>
+<div id="stage"><div id="dev">
+  <!-- a plain layout: the screen as big as it fits, the RG40XX H's controls either side -->
+  <div class="key shoulder" data-b="10" style="left:12px">L2</div>
+  <div class="key shoulder" data-b="8" style="left:106px">L1</div>
+  <div class="key shoulder" data-b="9" style="left:862px">R1</div>
+  <div class="key shoulder" data-b="11" style="left:956px">R2</div>
+  <canvas id="screen" width="640" height="480"></canvas>
+  <div class="dpad">
+    <div class="key" data-b="0" style="left:47px;top:0">▲</div>
+    <div class="key" data-b="2" style="left:0;top:46px">◀</div>
+    <div class="key" data-b="3" style="left:94px;top:46px">▶</div>
+    <div class="key" data-b="1" style="left:47px;top:92px">▼</div>
+  </div>
+  <div class="key round" data-b="6" style="left:938px;top:72px">X</div>
+  <div class="key round" data-b="7" style="left:883px;top:124px">Y</div>
+  <div class="key round" data-b="4" style="left:993px;top:124px">A</div>
+  <div class="key round" data-b="5" style="left:938px;top:176px">B</div>
+  <div class="key pill" data-b="12" style="left:73px;top:252px">SELECT</div>
+  <div class="key pill" data-b="13" style="left:933px;top:252px">START</div>
+  <div class="key pill" data-b="14" style="left:933px;top:462px">MENU</div>
+  <div class="ring" id="ringL" style="left:38px;top:300px"></div>
+  <div class="ring" id="ringR" style="left:898px;top:300px"></div>
+  <div id="ovl" class="ovl"><div><h2>Zappo X</h2><p id="ovlmsg">Loading the card…</p><div class="bar"><i id="ovlbar"></i></div></div></div>
+</div></div>
+<div id="turn"><div><p style="font:600 20px Fredoka,sans-serif;color:#e9ecf5">Turn the tablet sideways</p><p>Zappo X is landscape, like the RG40XX H.</p></div></div>
+
+<script>
+window.ZAPPO_NATIVE = true;
+/* Zappo X in the browser: the runtime around zappo.wasm.
+ *
+ *  - a small in-memory file system (the kit's themes, fonts and art, plus a
+ *    few test files) behind the WASI calls the C library makes;
+ *  - the "zappo" imports: draw the 640x480 picture, the clock, battery,
+ *    brightness, the sound (Web Audio) and what a game launch would start.
+ *
+ * Plain script, no libraries.  Exposes window.ZappoRuntime. */
+(function () {
+  "use strict";
+
+  /* ------------------------------------------------------------ files */
+
+  const DIR = 3, FILE = 4;
+  let inoNext = 10;
+
+  function mkdir() { return { type: DIR, ino: inoNext++, kids: new Map(), mtime: Date.now() }; }
+  function mkfile(data) { return { type: FILE, ino: inoNext++, data: data || new Uint8Array(0), size: data ? data.length : 0, mtime: Date.now() }; }
+
+  class MemFS {
+    constructor() { this.root = mkdir(); this.changed = new Set(); }
+    split(path) { return path.split("/").filter(p => p && p !== "."); }
+    lookup(path, from) {
+      let node = from || this.root;
+      const stack = [];
+      for (const part of this.split(path)) {
+        if (part === "..") { node = stack.length ? stack.pop() : this.root; continue; }
+        if (node.type !== DIR) return null;
+        const next = node.kids.get(part);
+        if (!next) return null;
+        stack.push(node);
+        node = next;
+      }
+      return node;
+    }
+    parentOf(path, from) {
+      const parts = this.split(path);
+      const name = parts.pop();
+      const dir = parts.length ? this.lookup(parts.join("/"), from) : (from || this.root);
+      return { dir, name };
+    }
+    mkdirp(path) {
+      let node = this.root;
+      for (const part of this.split(path)) {
+        let next = node.kids.get(part);
+        if (!next) { next = mkdir(); node.kids.set(part, next); }
+        node = next;
+      }
+      return node;
+    }
+    writeFile(path, bytes) {
+      const parts = this.split(path);
+      const name = parts.pop();
+      const dir = this.mkdirp(parts.join("/"));
+      const f = mkfile(bytes);
+      dir.kids.set(name, f);
+      return f;
+    }
+    readFile(path) {
+      const n = this.lookup(path);
+      return n && n.type === FILE ? n.data.subarray(0, n.size) : null;
+    }
+    absPath(node, target = this.root, prefix = "") {
+      if (target === node) return prefix || "/";
+      if (target.type !== DIR) return null;
+      for (const [k, v] of target.kids) {
+        const r = this.absPath(node, v, prefix + "/" + k);
+        if (r) return r;
+      }
+      return null;
+    }
+  }
+
+  /* ------------------------------------------------------------- WASI */
+
+  const E = { OK: 0, ACCES: 2, BADF: 8, EXIST: 20, INVAL: 28, ISDIR: 31, NOENT: 44, NOSYS: 52, NOTDIR: 54, NOTEMPTY: 55, SPIPE: 70 };
+  const ALL = 0xffffffffffffffffn;
+
+  class ExitStatus extends Error { constructor(code) { super("exit " + code); this.code = code; } }
+
+  function makeWasi(fs, getMem, log) {
+    const fds = new Map();
+    fds.set(0, { kind: "tty" });
+    fds.set(1, { kind: "tty", out: "log" });
+    fds.set(2, { kind: "tty", out: "err" });
+    fds.set(3, { kind: "node", node: fs.root, pre: "/", pos: 0 });
+    let nextFd = 4;
+    const tdec = new TextDecoder();
+    const tenc = new TextEncoder();
+    const view = () => new DataView(getMem().buffer);
+    const bytes = () => new Uint8Array(getMem().buffer);
+    const str = (p, n) => tdec.decode(bytes().slice(p, p + n));
+    const lines = { log: "", err: "" };
+
+    function fdNode(fd) { const f = fds.get(fd); return f && f.kind === "node" ? f : null; }
+    function grow(node, need) {
+      if (need <= node.data.length) return;
+      let cap = Math.max(need, node.data.length * 2, 4096);
+      const d = new Uint8Array(cap);
+      d.set(node.data.subarray(0, node.size));
+      node.data = d;
+    }
+    function stat(ptr, node) {
+      const v = view();
+      v.setBigUint64(ptr, 1n, true);
+      v.setBigUint64(ptr + 8, BigInt(node.ino), true);
+      v.setUint8(ptr + 16, node.type);
+      v.setBigUint64(ptr + 24, 1n, true);
+      v.setBigUint64(ptr + 32, BigInt(node.type === FILE ? node.size : 4096), true);
+      const t = BigInt(Math.floor(node.mtime)) * 1000000n;
+      v.setBigUint64(ptr + 40, t, true);
+      v.setBigUint64(ptr + 48, t, true);
+      v.setBigUint64(ptr + 56, t, true);
+    }
+    function markChanged(f) {
+      if (!f || !f.node) return;
+      const p = fs.absPath(f.node);
+      if (p) fs.changed.add(p);
+    }
+
+    const api = {
+      args_get: () => E.OK,
+      args_sizes_get: (argc, size) => { view().setUint32(argc, 0, true); view().setUint32(size, 0, true); return E.OK; },
+      environ_get: () => E.OK,
+      environ_sizes_get: (c, s) => { view().setUint32(c, 0, true); view().setUint32(s, 0, true); return E.OK; },
+      clock_res_get: (id, out) => { view().setBigUint64(out, 1000n, true); return E.OK; },
+      clock_time_get: (id, prec, out) => {
+        const ns = id === 0 ? BigInt(Date.now()) * 1000000n : BigInt(Math.floor(performance.now() * 1e6));
+        view().setBigUint64(out, ns, true);
+        return E.OK;
+      },
+      fd_advise: () => E.OK,
+      fd_allocate: () => E.OK,
+      fd_datasync: () => E.OK,
+      fd_sync: () => E.OK,
+      fd_close: (fd) => {
+        const f = fds.get(fd);
+        if (!f) return E.BADF;
+        if (f.dirty) markChanged(f);
+        if (fd > 3) fds.delete(fd);
+        return E.OK;
+      },
+      fd_fdstat_get: (fd, out) => {
+        const f = fds.get(fd);
+        if (!f) return E.BADF;
+        const v = view();
+        v.setUint8(out, f.kind === "tty" ? 2 : f.node.type);
+        v.setUint16(out + 2, f.append ? 1 : 0, true);
+        v.setBigUint64(out + 8, ALL, true);
+        v.setBigUint64(out + 16, ALL, true);
+        return E.OK;
+      },
+      fd_fdstat_set_flags: (fd, flags) => { const f = fds.get(fd); if (!f) return E.BADF; f.append = !!(flags & 1); return E.OK; },
+      fd_fdstat_set_rights: () => E.OK,
+      fd_filestat_get: (fd, out) => {
+        const f = fds.get(fd);
+        if (!f) return E.BADF;
+        if (f.kind === "tty") { stat(out, { ino: fd, type: 2, size: 0, mtime: 0 }); return E.OK; }
+        stat(out, f.node);
+        return E.OK;
+      },
+      fd_filestat_set_size: (fd, size) => {
+        const f = fdNode(fd);
+        if (!f || f.node.type !== FILE) return E.BADF;
+        const n = Number(size);
+        grow(f.node, n);
+        if (n > f.node.size) f.node.data.fill(0, f.node.size, n);
+        f.node.size = n;
+        f.dirty = true;
+        return E.OK;
+      },
+      fd_filestat_set_times: () => E.OK,
+      fd_prestat_get: (fd, out) => {
+        const f = fds.get(fd);
+        if (!f || !f.pre) return E.BADF;
+        view().setUint8(out, 0);
+        view().setUint32(out + 4, tenc.encode(f.pre).length, true);
+        return E.OK;
+      },
+      fd_prestat_dir_name: (fd, p, n) => {
+        const f = fds.get(fd);
+        if (!f || !f.pre) return E.BADF;
+        bytes().set(tenc.encode(f.pre).subarray(0, n), p);
+        return E.OK;
+      },
+      fd_read: (fd, iovs, n, outp) => {
+        const f = fdNode(fd);
+        if (!f) { view().setUint32(outp, 0, true); return fd === 0 ? E.OK : E.BADF; }
+        if (f.node.type !== FILE) return E.ISDIR;
+        let total = 0;
+        const v = view();
+        for (let i = 0; i < n; i++) {
+          const p = v.getUint32(iovs + i * 8, true), len = v.getUint32(iovs + i * 8 + 4, true);
+          const avail = Math.max(0, Math.min(len, f.node.size - f.pos));
+          bytes().set(f.node.data.subarray(f.pos, f.pos + avail), p);
+          f.pos += avail;
+          total += avail;
+          if (avail < len) break;
+        }
+        view().setUint32(outp, total, true);
+        return E.OK;
+      },
+      fd_pread: (fd, iovs, n, off, outp) => {
+        const f = fdNode(fd);
+        if (!f) return E.BADF;
+        const save = f.pos;
+        f.pos = Number(off);
+        const r = api.fd_read(fd, iovs, n, outp);
+        f.pos = save;
+        return r;
+      },
+      fd_write: (fd, iovs, n, outp) => {
+        const v = view();
+        const f = fds.get(fd);
+        if (!f) return E.BADF;
+        let total = 0;
+        for (let i = 0; i < n; i++) {
+          const p = v.getUint32(iovs + i * 8, true), len = v.getUint32(iovs + i * 8 + 4, true);
+          if (f.kind === "tty") {
+            lines[f.out || "log"] += str(p, len);
+            let k;
+            while ((k = lines[f.out || "log"].indexOf("\n")) >= 0) {
+              log(lines[f.out || "log"].slice(0, k), f.out === "err");
+              lines[f.out || "log"] = lines[f.out || "log"].slice(k + 1);
+            }
+          } else {
+            const node = f.node;
+            if (node.type !== FILE) return E.ISDIR;
+            if (f.append) f.pos = node.size;
+            grow(node, f.pos + len);
+            node.data.set(bytes().subarray(p, p + len), f.pos);
+            f.pos += len;
+            if (f.pos > node.size) node.size = f.pos;
+            node.mtime = Date.now();
+            f.dirty = true;
+          }
+          total += len;
+        }
+        v.setUint32(outp, total, true);
+        return E.OK;
+      },
+      fd_pwrite: (fd, iovs, n, off, outp) => {
+        const f = fdNode(fd);
+        if (!f) return E.BADF;
+        const save = f.pos;
+        f.pos = Number(off);
+        const r = api.fd_write(fd, iovs, n, outp);
+        f.pos = save;
+        return r;
+      },
+      fd_seek: (fd, off, whence, outp) => {
+        const f = fdNode(fd);
+        if (!f) return E.SPIPE;
+        const o = Number(off);
+        const base = whence === 0 ? 0 : whence === 1 ? f.pos : f.node.size;
+        const np = base + o;
+        if (np < 0) return E.INVAL;
+        f.pos = np;
+        view().setBigUint64(outp, BigInt(np), true);
+        return E.OK;
+      },
+      fd_tell: (fd, outp) => { const f = fdNode(fd); if (!f) return E.SPIPE; view().setBigUint64(outp, BigInt(f.pos), true); return E.OK; },
+      fd_readdir: (fd, buf, len, cookie, outp) => {
+        const f = fdNode(fd);
+        if (!f || f.node.type !== DIR) return E.NOTDIR;
+        const names = [".", "..", ...f.node.kids.keys()];
+        const v = view(), b = bytes();
+        let used = 0;
+        for (let i = Number(cookie); i < names.length; i++) {
+          const name = tenc.encode(names[i]);
+          const kid = i < 2 ? f.node : f.node.kids.get(names[i]);
+          const ent = new Uint8Array(24 + name.length);
+          const dv = new DataView(ent.buffer);
+          dv.setBigUint64(0, BigInt(i + 1), true);
+          dv.setBigUint64(8, BigInt(kid.ino), true);
+          dv.setUint32(16, name.length, true);
+          dv.setUint8(20, kid.type);
+          ent.set(name, 24);
+          const take = Math.min(ent.length, len - used);
+          b.set(ent.subarray(0, take), buf + used);
+          used += take;
+          if (used >= len) break;
+        }
+        v.setUint32(outp, used, true);
+        return E.OK;
+      },
+      fd_renumber: () => E.NOSYS,
+      path_create_directory: (fd, p, n) => {
+        const f = fdNode(fd);
+        if (!f) return E.BADF;
+        const { dir, name } = fs.parentOf(str(p, n), f.node);
+        if (!dir || dir.type !== DIR) return E.NOENT;
+        if (dir.kids.has(name)) return E.EXIST;
+        dir.kids.set(name, mkdir());
+        return E.OK;
+      },
+      path_filestat_get: (fd, flags, p, n, out) => {
+        const f = fdNode(fd);
+        if (!f) return E.BADF;
+        const node = fs.lookup(str(p, n), f.node);
+        if (!node) return E.NOENT;
+        stat(out, node);
+        return E.OK;
+      },
+      path_filestat_set_times: () => E.OK,
+      path_link: () => E.NOSYS,
+      path_readlink: () => E.INVAL,
+      path_symlink: () => E.NOSYS,
+      path_open: (fd, dirflags, p, n, oflags, rb, ri, fdflags, outp) => {
+        const f = fdNode(fd);
+        if (!f) return E.BADF;
+        const path = str(p, n);
+        let node = fs.lookup(path, f.node);
+        if (node && (oflags & 4)) return E.EXIST;               /* EXCL */
+        if (!node) {
+          if (!(oflags & 1)) return E.NOENT;                     /* CREAT */
+          const { dir, name } = fs.parentOf(path, f.node);
+          if (!dir || dir.type !== DIR || !name) return E.NOENT;
+          node = mkfile();
+          dir.kids.set(name, node);
+        }
+        if ((oflags & 2) && node.type !== DIR) return E.NOTDIR;  /* DIRECTORY */
+        if (oflags & 8) { if (node.type !== FILE) return E.ISDIR; node.size = 0; node.mtime = Date.now(); } /* TRUNC */
+        const nf = { kind: "node", node, pos: 0, append: !!(fdflags & 1), dirty: !!(oflags & 9) };
+        const id = nextFd++;
+        fds.set(id, nf);
+        view().setUint32(outp, id, true);
+        return E.OK;
+      },
+      path_remove_directory: (fd, p, n) => {
+        const f = fdNode(fd);
+        if (!f) return E.BADF;
+        const { dir, name } = fs.parentOf(str(p, n), f.node);
+        const node = dir && dir.kids.get(name);
+        if (!node) return E.NOENT;
+        if (node.type !== DIR) return E.NOTDIR;
+        if (node.kids.size) return E.NOTEMPTY;
+        dir.kids.delete(name);
+        return E.OK;
+      },
+      path_rename: (fd, p, n, fd2, p2, n2) => {
+        const a = fdNode(fd), b = fdNode(fd2);
+        if (!a || !b) return E.BADF;
+        const src = fs.parentOf(str(p, n), a.node), dst = fs.parentOf(str(p2, n2), b.node);
+        const node = src.dir && src.dir.kids.get(src.name);
+        if (!node) return E.NOENT;
+        if (!dst.dir || dst.dir.type !== DIR) return E.NOENT;
+        src.dir.kids.delete(src.name);
+        dst.dir.kids.set(dst.name, node);
+        const ap = fs.absPath(node);
+        if (ap) fs.changed.add(ap);
+        return E.OK;
+      },
+      path_unlink_file: (fd, p, n) => {
+        const f = fdNode(fd);
+        if (!f) return E.BADF;
+        const path = str(p, n);
+        const { dir, name } = fs.parentOf(path, f.node);
+        const node = dir && dir.kids.get(name);
+        if (!node) return E.NOENT;
+        if (node.type === DIR) return E.ISDIR;
+        dir.kids.delete(name);
+        return E.OK;
+      },
+      poll_oneoff: (inp, outp, n, neventsp) => {
+        /* only used for sleeping; the page never blocks, so wake at once */
+        const v = view();
+        for (let i = 0; i < n; i++) {
+          const ud = v.getBigUint64(inp + i * 48, true);
+          v.setBigUint64(outp + i * 32, ud, true);
+          v.setUint16(outp + i * 32 + 8, 0, true);
+          v.setUint8(outp + i * 32 + 10, v.getUint8(inp + i * 48 + 8));
+        }
+        v.setUint32(neventsp, n, true);
+        return E.OK;
+      },
+      proc_exit: (code) => { throw new ExitStatus(code); },
+      proc_raise: () => E.NOSYS,
+      random_get: (p, n) => { crypto.getRandomValues(bytes().subarray(p, p + n)); return E.OK; },
+      sched_yield: () => E.OK,
+      sock_accept: () => E.NOSYS, sock_recv: () => E.NOSYS, sock_send: () => E.NOSYS, sock_shutdown: () => E.NOSYS,
+    };
+    return api;
+  }
+
+  /* ------------------------------------------------------------- sound */
+
+  class Sound {
+    constructor() { this.ctx = null; this.rate = 44100; this.ch = 2; this.next = 0; this.srcs = []; this.paused = false; this.gain = null; }
+    wake() {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ctx = new AC();
+        this.gain = this.ctx.createGain();
+        this.gain.connect(this.ctx.destination);
+      }
+      if (this.ctx.state === "suspended" && !this.paused) this.ctx.resume();
+    }
+    open(rate, ch) { this.rate = rate; this.ch = ch; this.next = 0; }
+    push(i16, frames) {
+      if (!this.ctx) return;
+      const ch = this.ch;
+      const buf = this.ctx.createBuffer(ch, frames, this.rate);
+      for (let c = 0; c < ch; c++) {
+        const d = buf.getChannelData(c);
+        for (let i = 0; i < frames; i++) d[i] = i16[i * ch + c] / 32768;
+      }
+      const s = this.ctx.createBufferSource();
+      s.buffer = buf;
+      s.connect(this.gain);
+      const now = this.ctx.currentTime;
+      if (this.next < now + 0.03) this.next = now + 0.05;
+      s.start(this.next);
+      this.next += frames / this.rate;
+      this.srcs.push(s);
+      s.onended = () => { const k = this.srcs.indexOf(s); if (k >= 0) this.srcs.splice(k, 1); };
+    }
+    queuedMs() {
+      if (!this.ctx) return 0;
+      if (this.ctx.state !== "running") return 1000; /* not allowed to play yet: don't decode ahead */
+      return Math.max(0, (this.next - this.ctx.currentTime) * 1000);
+    }
+    pause(p) {
+      if (!this.ctx || p === this.paused) return;
+      this.paused = p;
+      if (p) this.ctx.suspend(); else this.ctx.resume();
+    }
+    stop(now) {
+      if (now) { for (const s of this.srcs) { try { s.stop(); } catch (e) {} } this.srcs = []; }
+      this.next = 0;
+    }
+  }
+
+  /* ---------------------------------------------------------- the app */
+
+  class Zappo {
+    constructor(opts) {
+      this.fs = opts.fs;
+      this.canvas = opts.canvas;
+      this.ctx2d = this.canvas.getContext("2d", { alpha: false });
+      this.image = this.ctx2d.createImageData(640, 480);
+      this.px = new Uint32Array(this.image.data.buffer);
+      this.sound = opts.sound;
+      this.hooks = opts.hooks || {};
+      this.log = opts.log || ((s, err) => (err ? console.warn : console.log)("zappo: " + s));
+      this.inst = null;
+      this.mem = null;
+      this.frameMs = [];
+    }
+    async load(wasmBytes) {
+      this.module = await WebAssembly.compile(wasmBytes);
+    }
+    async start() {
+      const getMem = () => this.mem;
+      const wasi = makeWasi(this.fs, getMem, this.log);
+      const u8 = () => new Uint8Array(this.mem.buffer);
+      const dec = new TextDecoder();
+      const z = {
+        present: (ptr, w, h) => {
+          const src = new Uint32Array(this.mem.buffer, ptr, w * h);
+          const px = this.px;
+          for (let i = 0; i < src.length; i++) {
+            const p = src[i];
+            px[i] = 0xff000000 | ((p & 0xff) << 16) | (p & 0xff00) | ((p >>> 16) & 0xff);
+          }
+          this.ctx2d.putImageData(this.image, 0, 0);
+          this.presented = true;
+        },
+        now_ms: () => performance.now(),
+        battery: () => (this.hooks.battery ? this.hooks.battery() : 76),
+        charging: () => (this.hooks.charging ? this.hooks.charging() : 0),
+        brightness: (lv) => this.hooks.brightness && this.hooks.brightness(lv),
+        launch: (p, n) => { this.launched = dec.decode(u8().slice(p, p + n)); },
+        power: (reboot) => this.hooks.power && this.hooks.power(reboot),
+        describe: (p, n) => {
+          const t = new TextEncoder().encode((this.hooks.describe ? this.hooks.describe() : "").slice(0, n - 1));
+          u8().set(t, p);
+          u8()[p + t.length] = 0;
+          return t.length;
+        },
+        audio_open: (rate, ch) => this.sound.open(rate, ch),
+        audio_push: (ptr, frames) => this.sound.push(new Int16Array(this.mem.buffer, ptr, frames * this.sound.ch), frames),
+        audio_queued_ms: () => Math.round(this.sound.queuedMs()),
+        audio_pause: (p) => this.sound.pause(!!p),
+        audio_stop: (now) => this.sound.stop(!!now),
+      };
+      this.inst = await WebAssembly.instantiate(this.module, { wasi_snapshot_preview1: wasi, zappo: z });
+      this.mem = this.inst.exports.memory;
+      this.inst.exports._initialize();
+      this.launched = null;
+      const r = this.inst.exports.zx_start();
+      if (r !== 0) throw new Error("Zappo could not start (" + r + ")");
+      this.running = true;
+    }
+    /* one animation frame; false once Zappo has finished (see .state) */
+    frame() {
+      if (!this.running) return false;
+      const t0 = performance.now();
+      this.presented = false;
+      const go = this.inst.exports.zx_frame();
+      const dt = performance.now() - t0;
+      if (this.presented) { this.frameMs.push(dt); if (this.frameMs.length > 600) this.frameMs.shift(); }
+      if (!go) {
+        this.state = this.inst.exports.zx_state();
+        this.inst.exports.zx_end();
+        this.running = false;
+      }
+      return go;
+    }
+    key(button, down) { if (this.running) this.inst.exports.zx_key(button, down ? 1 : 0); }
+    tab() { return this.running ? this.inst.exports.zx_tab() : -1; }
+    musicPlaying() { return this.running ? this.inst.exports.zx_music_playing() : 0; }
+  }
+
+  window.ZappoRuntime = { MemFS, Sound, Zappo, ExitStatus };
+})();
+
+</script>
+<script>
+(() => {
+  "use strict";
+  const { MemFS, Sound, Zappo } = window.ZappoRuntime;
+  const $ = (id) => document.getElementById(id);
+  const dev = $("dev"), stage = $("stage"), ovl = $("ovl"), ovlmsg = $("ovlmsg"), speed = $("speed");
+
+  /* ------------------------------------------------ fit the handheld */
+  function fit() {
+    const r = stage.getBoundingClientRect();
+    const s = Math.min(r.width / 1072, r.height / 504);
+    dev.style.transform = `translate(${-532 * s}px, ${-250 * s}px) scale(${s})`;
+  }
+  addEventListener("resize", fit); fit();
+
+  /* ------------------------------------------------- the stick lights */
+  /* The default planned for Zappo X: the rings take the colour of the section
+     you're in (Recent electric, Favorites crystal, Consoles fire, Music water,
+     Videos ice, Settings leaf).  8 LEDs a ring, as on the RG40XX H. */
+  const SECTION = ["#f5c842", "#b57cff", "#ff8a1f", "#3fc1ff", "#8fd3ff", "#e9ecf5", "#9fd84a"];
+  function ringSVG() {
+    let s = '<svg viewBox="-66 -66 132 132"><defs><filter id="g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter></defs>';
+    s += '<circle r="58" fill="none" stroke="#2b2e3a" stroke-width="5"/>';
+    for (let i = 0; i < 8; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 4, x = (50 * Math.cos(a)).toFixed(1), y = (50 * Math.sin(a)).toFixed(1);
+      s += `<circle class="glow" cx="${x}" cy="${y}" r="13" filter="url(#g)"/><circle class="led" cx="${x}" cy="${y}" r="5"/>`;
+    }
+    s += '<g class="knob"><circle r="36" fill="#181a22" stroke="#2f3240" stroke-width="2"/><circle r="26" fill="#22242e"/><circle r="15" fill="#2a2d38"/></g></svg>';
+    return s;
+  }
+  $("ringL").innerHTML = ringSVG(); $("ringR").innerHTML = ringSVG();
+  const leds = [...document.querySelectorAll(".led")], glows = [...document.querySelectorAll(".glow")];
+  function lights(colour, t, music) {
+    const k = music ? 0.55 + 0.45 * Math.abs(Math.sin(t / 260)) : 0.78 + 0.22 * Math.sin(t / 900);
+    leds.forEach((l, i) => { l.setAttribute("fill", colour); l.setAttribute("opacity", (0.55 + 0.45 * k).toFixed(2)); });
+    glows.forEach((g) => { g.setAttribute("fill", colour); g.setAttribute("opacity", (0.65 * k).toFixed(2)); });
+  }
+
+  /* ------------------------------------------------------- the card */
+  const fs = new MemFS();
+  const SAVE = "zx-file:";
+  /* the card: index.json, then every file (a few at a time) */
+  async function loadCard(onProgress) {
+    const idx = await (await fetch("card/index.json")).json();
+    const total = idx.reduce((t, f) => t + (f.s || 0), 0) || 1;
+    let got = 0, next = 0;
+    for (const f of idx) if (f.b !== undefined) fs.writeFile(f.p, Uint8Array.from(atob(f.b), (c) => c.charCodeAt(0)));
+    const todo = idx.filter((f) => f.f);
+    async function worker() {
+      while (next < todo.length) {
+        const f = todo[next++];
+        const r = await fetch("card/" + f.f);
+        if (!r.ok) throw new Error(f.p + ": " + r.status);
+        const d = new Uint8Array(await r.arrayBuffer());
+        fs.writeFile(f.p, d);
+        got += d.length;
+        onProgress(got / total);
+      }
+    }
+    await Promise.all([worker(), worker(), worker(), worker(), worker(), worker()]);
+  }
+  function restore() {   /* your settings from earlier visits (this browser only) */
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k.startsWith(SAVE)) continue;
+        const b = atob(localStorage.getItem(k));
+        fs.writeFile(k.slice(SAVE.length), Uint8Array.from(b, (c) => c.charCodeAt(0)));
+      }
+    } catch (e) { /* private window or storage off: start fresh */ }
+  }
+  function persist() {
+    for (const p of [...fs.changed]) {
+      fs.changed.delete(p);
+      if (!p.startsWith("/mmc/CFW/clove/")) continue;
+      const d = fs.readFile(p);
+      try {
+        if (!d) localStorage.removeItem(SAVE + p);
+        else if (d.length < 400000) {
+          let s = ""; for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode.apply(null, d.subarray(i, i + 0x8000));
+          localStorage.setItem(SAVE + p, btoa(s));
+        }
+      } catch (e) { /* storage full or off */ }
+    }
+  }
+  async function fetchBytes(url, onProgress) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(url + ": " + r.status);
+    const total = +r.headers.get("content-length") || 0;
+    if (!r.body || !total) return await r.arrayBuffer();
+    const reader = r.body.getReader(); const parts = []; let got = 0;
+    for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; onProgress && onProgress(got / total); }
+    const out = new Uint8Array(got); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out.buffer;
+  }
+
+  /* ------------------------------------------------------- buttons */
+  const sound = new Sound();
+  const held = new Map();     /* button -> sources holding it */
+  let z = null;
+  function press(b, down, src) {
+    sound.wake();
+    const set = held.get(b) || new Set();
+    const was = set.size > 0;
+    down ? set.add(src) : set.delete(src);
+    held.set(b, set);
+    const now = set.size > 0;
+    if (was !== now) {
+      if (z && z.running && ovl.hidden) z.key(b, now);   /* not while a message is up */
+      document.querySelectorAll(`.key[data-b="${b}"]`).forEach((k) => k.classList.toggle("on", now));
+      if (now && !ovl.hidden && ovlAction && (b === 4 || b === 5 || b === 13)) ovlAction();
+    }
+  }
+  document.querySelectorAll(".key").forEach((k) => {
+    const b = +k.dataset.b;
+    k.addEventListener("pointerdown", (e) => { e.preventDefault(); k.setPointerCapture(e.pointerId); press(b, 1, "t" + e.pointerId); });
+    const up = (e) => press(b, 0, "t" + e.pointerId);
+    k.addEventListener("pointerup", up); k.addEventListener("pointercancel", up); k.addEventListener("lostpointercapture", up);
+  });
+  const KEYS = { ArrowUp: 0, ArrowDown: 1, ArrowLeft: 2, ArrowRight: 3, KeyX: 4, Enter: 4, KeyZ: 5, Backspace: 5, KeyS: 6, KeyA: 7,
+    KeyQ: 8, KeyW: 9, Digit1: 10, Digit2: 11, ShiftRight: 12, ShiftLeft: 12, Space: 13, Escape: 14, KeyM: 14 };
+  addEventListener("keydown", (e) => { const b = KEYS[e.code]; if (b !== undefined) { e.preventDefault(); if (!e.repeat) press(b, 1, "k" + e.code); } });
+  addEventListener("keyup", (e) => { const b = KEYS[e.code]; if (b !== undefined) press(b, 0, "k" + e.code); });
+  /* The two sticks, on screen: drag them.  Left stick = the d-pad; right
+     stick left/right = L1/R1 (sections), up/down = L2/R2 (a page at a time). */
+  const STICK = { L: [2, 3, 0, 1], R: [8, 9, 10, 11] };   /* left, right, up, down */
+  function stickDirs(side, x, y, src) {
+    const [l, r, u, d] = STICK[side];
+    const m = Math.hypot(x, y) > 0.35;
+    const horiz = Math.abs(x) >= Math.abs(y);
+    press(l, m && horiz && x < 0 ? 1 : 0, src); press(r, m && horiz && x > 0 ? 1 : 0, src);
+    press(u, m && !horiz && y < 0 ? 1 : 0, src); press(d, m && !horiz && y > 0 ? 1 : 0, src);
+  }
+  function knob(side, x, y) {
+    const k = document.querySelector("#ring" + side + " .knob");
+    if (k) k.setAttribute("transform", `translate(${(x * 14).toFixed(1)} ${(y * 14).toFixed(1)})`);
+  }
+  ["L", "R"].forEach((side) => {
+    const el = $("ring" + side);
+    let id = null;
+    const move = (e) => {
+      const r = el.getBoundingClientRect();
+      let x = (e.clientX - (r.left + r.width / 2)) / (r.width / 2), y = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+      const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
+      knob(side, x, y); stickDirs(side, x, y, "s" + side);
+    };
+    el.style.touchAction = "none"; el.style.cursor = "grab";
+    el.addEventListener("pointerdown", (e) => { e.preventDefault(); id = e.pointerId; el.setPointerCapture(id); sound.wake(); move(e); });
+    el.addEventListener("pointermove", (e) => { if (e.pointerId === id) move(e); });
+    const end = (e) => { if (e.pointerId !== id) return; id = null; knob(side, 0, 0); stickDirs(side, 0, 0, "s" + side); };
+    el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end); el.addEventListener("lostpointercapture", end);
+  });
+
+  /* Bluetooth or USB controllers, by position: bottom = B, right = A, left = Y,
+     top = X - the RG40XX H's own layout. */
+  const PAD = { 0: 5, 1: 4, 2: 7, 3: 6, 4: 8, 5: 9, 6: 10, 7: 11, 8: 12, 9: 13, 12: 0, 13: 1, 14: 2, 15: 3, 16: 14 };
+  function pollPads() {
+    let pads = [];
+    try { pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []; } catch (e) { return; }
+    $("pad").hidden = !pads.length;
+    if (pads.length) $("pad").textContent = "🎮 " + pads[0].id.replace(/\s*\(.*$/, "").slice(0, 26);
+    pads.forEach((p, pi) => {
+      for (const [i, b] of Object.entries(PAD)) { const btn = p.buttons[+i]; if (btn) press(b, btn.pressed ? 1 : 0, "p" + pi + "-" + i); }
+      const ax = p.axes[0] || 0, ay = p.axes[1] || 0, bx = p.axes[2] || 0, by = p.axes[3] || 0;
+      stickDirs("L", Math.abs(ax) > 0.5 ? ax : 0, Math.abs(ay) > 0.5 ? ay : 0, "pl" + pi);
+      stickDirs("R", Math.abs(bx) > 0.5 ? bx : 0, Math.abs(by) > 0.5 ? by : 0, "pr" + pi);
+      if (pi === 0) { knob("L", ax, ay); knob("R", bx, by); }
+    });
+  }
+
+  /* ------------------------------------------------ a game was chosen */
+  let ovlAction = null;
+  function showLaunch(cmd, back) {
+    const m = /-L "([^"]+)" '((?:[^']|'\\'')*)'/.exec(cmd || "");
+    const core = m ? m[1].split("/").pop().replace(/_libretro\.so$/, "") : "";
+    const rom = m ? m[2].replace(/'\\''/g, "'") : "";
+    const name = rom.split("/").pop();
+    const body = ovl.firstElementChild;
+    if (core === "ffmpeg" && !NATIVE && fs.readFile(rom)) {
+      const url = URL.createObjectURL(new Blob([fs.readFile(rom)], { type: "video/mp4" }));
+      body.innerHTML = `<div><video src="${url}" controls autoplay playsinline></video><p>${esc(name)} - on the RG40XX H this plays in RetroArch's film player.</p><button class="go">Back to Zappo</button></div>`;
+    } else {
+      const what = rom ? `starts <b>${esc(name)}</b> with RetroArch's <b>${esc(core)}</b> emulator` : `opens <b>RetroArch</b>`;
+      body.innerHTML = `<div><h2>Game time</h2><p>On the RG40XX H, this ${what}.</p><p>The games here are stand-ins: this preview is for the menus, music and look.</p><button class="go">Back to Zappo</button><p style="margin-top:18px"><code>${esc(cmd.split("\n").filter((l) => l && !l.startsWith("#")).slice(-1)[0] || "")}</code></p></div>`;
+    }
+    ovl.hidden = false;
+    ovlAction = async () => { ovlAction = null; const v = body.querySelector("video"); if (v) v.pause(); ovl.hidden = true; if (back) back(); else await boot(); };
+    body.querySelector(".go").onclick = () => ovlAction && ovlAction();
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  /* --------------------------- full speed: Zappo runs natively (Termux) */
+  /* zappo-tablet serves this page and streams the picture over a WebSocket:
+     "F" + rows of RGB565, "A" + sound; text: "t tab music median p95 n",
+     "l command" (a game was chosen), "a rate ch", "b level", "q". */
+  class NativeEngine {
+    constructor() {
+      this.running = false; this.frameMs = []; this.stats = null; this._tab = 2; this._music = 0;
+      this.ctx = $("screen").getContext("2d", { alpha: false });
+      this.img = this.ctx.createImageData(640, 480);
+      this.px = new Uint32Array(this.img.data.buffer);
+    }
+    connect() {
+      const ws = new WebSocket("ws://" + location.host + "/ws");
+      ws.binaryType = "arraybuffer";
+      this.ws = ws;
+      ws.onopen = () => { this.running = true; ovl.hidden = true; ovlAction = null; ws.send("full"); for (const [b, set] of held) if (set.size) this.key(b, 1); };
+      ws.onclose = () => {
+        this.running = false;
+        if (ovl.hidden || !ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo X stopped</h2><p>Start it again in Termux:</p><p><code>~/zappo-x/tablet/run.sh</code></p></div>'; }
+        setTimeout(() => this.connect(), 2000);
+      };
+      ws.onmessage = (e) => {
+        if (typeof e.data === "string") return this.text(e.data);
+        const u8 = new Uint8Array(e.data);
+        if (u8[0] === 70) {            /* F: rows y0..y1 */
+          const y0 = (u8[1] << 8) | u8[2], y1 = (u8[3] << 8) | u8[4];
+          const n = (y1 - y0 + 1) * 640;
+          const src = new Uint16Array(e.data.slice(5, 5 + n * 2));
+          const px = this.px, o = y0 * 640;
+          for (let i = 0; i < n; i++) {
+            const v = src[i];
+            const r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31;
+            px[o + i] = 0xff000000 | (((b << 3) | (b >> 2)) << 16) | (((g << 2) | (g >> 4)) << 8) | ((r << 3) | (r >> 2));
+          }
+          this.ctx.putImageData(this.img, 0, 0, 0, y0, 640, y1 - y0 + 1);
+        } else if (u8[0] === 65) {     /* A: sound */
+          const pcm = new Int16Array(e.data.slice(1, 1 + ((u8.length - 1) & ~1)));
+          sound.push(pcm, pcm.length / sound.ch);
+        }
+      };
+    }
+    text(m) {
+      const [k, ...rest] = m.split(" ");
+      if (k === "t") {
+        const [tab, music, med, p95, n] = rest.map(Number);
+        this._tab = tab; this._music = music; this.stats = { med, p95, n };
+      } else if (k === "l") { showLaunch(m.slice(2), () => this.ws.send("back")); }
+      else if (k === "a") { if (rest[0] === "end") sound.stop(false); else { sound.wake(); sound.open(+rest[0], +rest[1]); } }
+      else if (k === "b") { const lv = +rest[0]; $("screen").style.filter = lv <= 0 ? "brightness(0)" : `brightness(${(0.35 + lv * 0.065).toFixed(2)})`; }
+      else if (k === "q") { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo closed</h2></div>'; }
+    }
+    frame() { return true; }
+    key(b, down) { if (this.running) this.ws.send(`k ${b} ${down ? 1 : 0}`); }
+    tab() { return this._tab; }
+    musicPlaying() { return this._music; }
+  }
+
+  /* ------------------------------------------------------- run */
+  const NATIVE = !!window.ZAPPO_NATIVE;
+  let wasm = null, benchUntil = 0, benchHold = 0;
+  async function boot() {
+    if (NATIVE) { if (!z) { z = new NativeEngine(); z.connect(); } return; }
+    z = new Zappo({
+      fs, canvas: $("screen"), sound,
+      hooks: {
+        battery: () => battery.level, charging: () => battery.charging,
+        brightness: (lv) => { $("screen").style.filter = lv <= 0 ? "brightness(0)" : `brightness(${(0.35 + lv * 0.065).toFixed(2)})`; },
+        describe: () => `Browser: ${navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || "unknown"}\nCPU threads: ${navigator.hardwareConcurrency || "?"}`,
+        power: () => { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Switched off</h2><p>On the handheld, this powers off.</p><button class="go">Switch on</button></div>'; ovlAction = async () => { ovlAction = null; ovl.hidden = true; await boot(); }; ovl.querySelector(".go").onclick = () => ovlAction(); },
+      },
+    });
+    await z.load(wasm);
+    await z.start();
+    for (const [b, set] of held) if (set.size) z.key(b, 1);
+  }
+  const battery = { level: 76, charging: 0 };
+  try { navigator.getBattery && navigator.getBattery().then((b) => { const u = () => { battery.level = Math.round(b.level * 100); battery.charging = b.charging ? 1 : 0; }; u(); b.onlevelchange = b.onchargingchange = u; }).catch(() => {}); } catch (e) {}
+
+  let lastSave = 0, fpsT = 0, fpsN = 0;
+  function loop(t) {
+    pollPads();
+    if (z && z.running) {
+      if (!z.frame()) {
+        persist();
+        if (z.state === 1 /* UI_LAUNCH */) showLaunch(z.launched || "");
+        else if (!ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo closed</h2><button class="go">Start again</button></div>'; ovlAction = async () => { ovlAction = null; ovl.hidden = true; await boot(); }; ovl.querySelector(".go").onclick = () => ovlAction(); }
+      }
+      const tab = z.tab();
+      lights(SECTION[tab] || SECTION[2], t, tab === 3 && z.musicPlaying());
+    }
+    if (t - lastSave > 3000) { lastSave = t; persist(); }
+    fpsN++;
+    if (t - fpsT > 1000 && z && t > benchHold) {
+      const ms = z.frameMs.slice(-120).sort((a, b) => a - b);
+      const med = NATIVE ? (z.stats ? z.stats.med : 0) : ms.length ? ms[ms.length >> 1] : 0;
+      speed.textContent = benchUntil > t ? "speed test…" : NATIVE ? `full speed · draw ${med.toFixed(1)} ms` : `${Math.round((fpsN * 1000) / (t - fpsT))} fps · draw ${med.toFixed(1)} ms`;
+      fpsT = t; fpsN = 0;
+    }
+    if (benchUntil && t > benchUntil) finishBench();
+    requestAnimationFrame(loop);
+  }
+
+  /* speed test: a fixed tour of the menus while timing every picture */
+  const TOUR = [9, 9, 9, 9, 8, 8, 8, 8, 3, 3, 3, 1, 1, 0, 9, 9, 1, 1, 1, 0, 0, 8, 8, 3, 3, 2, 2];
+  let tourTimer = null;
+  $("bench").onclick = () => {
+    if (!z || !z.running) return;
+    z.frameMs.length = 0;
+    if (NATIVE) z.ws.send("reset");
+    benchUntil = performance.now() + TOUR.length * 380 + 600;
+    let i = 0;
+    clearInterval(tourTimer);
+    tourTimer = setInterval(() => {
+      if (i >= TOUR.length) { clearInterval(tourTimer); return; }
+      const b = TOUR[i++]; z.key(b, 1); setTimeout(() => z.key(b, 0), 90);
+    }, 380);
+  };
+  function finishBench() {
+    benchUntil = 0;
+    benchHold = performance.now() + 30000;   /* keep the result up for a while */
+    if (NATIVE) {
+      const st = z.stats;
+      if (st && st.n) speed.textContent = `full-speed test: ${st.n} pictures · median ${st.med.toFixed(1)} ms · slowest 5% ${st.p95.toFixed(1)} ms`;
+      return;
+    }
+    const ms = z.frameMs.slice().sort((a, b) => a - b);
+    if (!ms.length) return;
+    const med = ms[ms.length >> 1], p95 = ms[Math.floor(ms.length * 0.95)];
+    speed.textContent = `test: ${ms.length} pictures · median ${med.toFixed(1)} ms · slowest 5% ${p95.toFixed(1)} ms`;
+  }
+
+  $("full").onclick = () => { const d = document.documentElement; try { (d.requestFullscreen || d.webkitRequestFullscreen).call(d).catch?.(() => {}); } catch (e) {} };
+
+  (async () => {
+    if (NATIVE) { await boot(); requestAnimationFrame(loop); return; }
+    try {
+      const [w] = await Promise.all([
+        fetchBytes("zappo.wasm"),
+        loadCard((f) => { $("ovlbar").style.width = (f * 100).toFixed(0) + "%"; }),
+      ]);
+      wasm = w;
+      restore();
+      await boot();
+      ovl.hidden = true;
+      requestAnimationFrame(loop);
+    } catch (e) {
+      ovlmsg.innerHTML = "Zappo X couldn't start in this browser.<br><code>" + esc(e && e.message || e) + "</code>";
+      console.error(e);
+    }
+  })();
+})();
+</script>

@@ -1,0 +1,5 @@
+# Zappo - steer the film poster look-up (Zappo.bat -> 4). One per line:
+#   name on the card (without extension) = what to search for
+#   name on the card = what to search for | label:2      (big text drawn on the poster, e.g. a part number)
+#   name on the card = skip                              (keep the frame grab / your own picture)
+# Series folders are looked up by their folder name.

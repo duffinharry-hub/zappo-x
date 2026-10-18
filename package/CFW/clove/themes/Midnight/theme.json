@@ -1,0 +1,20 @@
+{
+  "name": "Midnight",
+  "colors": {
+    "background": "#0f1a2b",
+    "background2": "#060b14",
+    "surface": "#16243a",
+    "surface_highlight": "#1f3150",
+    "text": "#e6eef8",
+    "text_dim": "#7f93ad",
+    "accent": "#4cc2ff",
+    "accent_text": "#06101c",
+    "favorite": "#ffd166",
+    "shadow": "#00000099"
+  },
+  "font": { "file": "NotoSans-Regular.ttf", "title": 26, "body": 21, "small": 16 },
+  "radius": 8,
+  "home_layout": "grid",
+  "game_layout": "list_art",
+  "list_rows": 10
+}

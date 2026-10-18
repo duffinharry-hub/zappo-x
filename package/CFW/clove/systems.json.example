@@ -1,0 +1,4 @@
+{
+	"MSU1": { "name": "SNES MSU-1", "core": "snes9x_libretro.so", "cpu": 1488000 },
+	"HOMEBREW": { "name": "Homebrew GBA", "core": "gpsp_libretro.so" }
+}

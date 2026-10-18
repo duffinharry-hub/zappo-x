@@ -1,0 +1,18 @@
+Building Clove and Blockbox
+===========================
+
+Clove (launcher)          clove/
+  make host   desktop test build; tests/shoot.sh drives it and saves screenshots
+  make arm    static ARMv7 binary for the RG35XX (any arm-linux-gnueabihf GCC;
+              static linking means it doesn't depend on GarlicOS's uClibc)
+  Sources: src/plat_dev.c (framebuffer, evdev input, sysfs), src/ui.c (screens),
+  src/data.c (systems, games, favourites, launching), src/config.c (settings,
+  themes), src/gfx.c + src/font.c (software renderer, stb_truetype).
+
+Blockbox (libretro core)  blockbox/
+  make host   desktop core + test frontend (build/frontend-host)
+  make arm    build/blockbox_libretro.so: freestanding (no libc, no libgcc),
+              soft-float ABI to match GarlicOS's RetroArch and cores.
+
+ARM_TOOLCHAIN in each Makefile points at the GCC used (crosstool-NG
+arm-rpi-4.9.3-linux-gnueabihf from github.com/raspberrypi/tools).

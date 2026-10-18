@@ -1,0 +1,4 @@
+# Zappo - a better name to search for, when a game's file name isn't its name
+# (ROM hacks, homebrew). One per line:
+#   file name without extension = Name to search for
+#   file name without extension = tgdb:12345      (the number in a thegamesdb.net game page address)

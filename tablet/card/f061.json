@@ -1,0 +1,30 @@
+{
+  "name": "Zappo Leaf",
+  "colors": {
+    "background": "#0c1a0c",
+    "background2": "#060f06",
+    "surface": "#142614",
+    "surface_highlight": "#24401f",
+    "text": "#f2f8ec",
+    "text_dim": "#b8cfa4",
+    "accent": "#9fd84a",
+    "accent_text": "#142406",
+    "favorite": "#e6f59a",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "radius": 12,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left",
+  "background": "background.png",
+  "background_dim": 70,
+  "background_sharp": true
+}

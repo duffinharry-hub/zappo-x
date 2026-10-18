@@ -1,0 +1,65 @@
+#!/usr/bin/python3
+"""Zappo X device twin: the helper inside the twin.
+
+Listens on the twin's control channel (virtio port "zappo.twin") for one
+JSON request per line from twinctl.py outside, and answers with one JSON line:
+  {"id": 1, "do": "run", "cmd": "ls /userdata"}  -> {"id": 1, "rc": 0, "out": "..."}
+Only exists inside the twin; nothing of it ships on a real handheld.
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+
+def find_port(name="zappo.twin"):
+    base = "/sys/class/virtio-ports"
+    while True:
+        try:
+            for p in os.listdir(base):
+                with open(os.path.join(base, p, "name")) as f:
+                    if f.read().strip() == name:
+                        return "/dev/" + p
+        except OSError:
+            pass
+        time.sleep(0.5)
+
+
+def run(req):
+    try:
+        r = subprocess.run(["/bin/sh", "-c", req["cmd"]], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=req.get("timeout", 60))
+        return {"rc": r.returncode, "out": r.stdout.decode("utf-8", "replace")}
+    except subprocess.TimeoutExpired as e:
+        return {"rc": -1, "out": (e.stdout or b"").decode("utf-8", "replace") + "\n[timed out]"}
+
+
+HANDLERS = {"run": run, "ping": lambda req: {"rc": 0, "out": "pong"}}
+
+
+def main():
+    dev = find_port()
+    while not os.path.exists(dev):
+        time.sleep(0.2)
+    fd = os.open(dev, os.O_RDWR)
+    buf = b""
+    while True:
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            time.sleep(0.2)
+            continue
+        buf += chunk
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            try:
+                req = json.loads(line)
+                ans = HANDLERS.get(req.get("do"), lambda r: {"rc": -2, "out": "unknown request"})(req)
+            except Exception as e:  # keep the channel alive whatever happens
+                req, ans = {}, {"rc": -3, "out": "agent error: %s" % e}
+            ans["id"] = req.get("id")
+            os.write(fd, json.dumps(ans).encode() + b"\n")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

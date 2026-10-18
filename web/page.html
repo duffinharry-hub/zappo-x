@@ -1,0 +1,439 @@
+<meta charset="utf-8">
+<title>Zappo X Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Figtree:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* One look on purpose: a dark handheld on a dark desk, whatever the viewer's theme. */
+:root {
+  color-scheme: dark;
+  --desk: #0b0d14; --desk2: #121624;
+  --body: #1d1f27; --body-edge: #2c2f3a; --body-hi: #34384a;
+  --key: #12131a; --key-hi: #20222c; --key-txt: #8d93a8;
+  --ink: #e9ecf5; --ink-dim: #9aa1b8; --gold: #f5c842;
+  --ring: #f5c842;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: radial-gradient(120% 90% at 50% 0%, var(--desk2), var(--desk)); color: var(--ink);
+  font: 15px/1.45 Figtree, system-ui, sans-serif; overflow: hidden; touch-action: none; user-select: none;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.top { display: flex; align-items: center; gap: 12px; height: 46px; flex-wrap: nowrap; }
+.brand { font: 600 19px Fredoka, Figtree, sans-serif; letter-spacing: .3px; white-space: nowrap; }
+.brand b { color: var(--gold); font-weight: 600; }
+.chip { font: 500 12px "JetBrains Mono", ui-monospace, monospace; color: var(--ink-dim); background: #ffffff0d; border: 1px solid #ffffff14;
+  padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
+.spacer { flex: 1; min-width: 0; }
+.tbtn { font: 600 13px Figtree, sans-serif; color: var(--ink); background: #ffffff12; border: 1px solid #ffffff1f; border-radius: 10px;
+  padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+.tbtn:active { background: #ffffff26; }
+#stage { position: relative; height: calc(100% - 46px - 8px); display: grid; place-items: center; }
+#dev { position: absolute; left: 50%; top: 50%; width: 1064px; height: 500px; transform-origin: 0 0; }
+canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height: 480px; background: #000; border-radius: 10px;
+  box-shadow: 0 0 0 1px #ffffff14, 0 18px 50px #000c; }
+.key { position: absolute; display: grid; place-items: center; background: var(--key); color: var(--key-txt); font: 700 15px Figtree, sans-serif;
+  box-shadow: inset 0 -3px 0 #00000080, inset 0 1px 0 #ffffff14; cursor: pointer; touch-action: none; }
+.key.on { background: var(--key-hi); color: var(--ink); transform: translateY(1px); }
+.round { width: 52px; height: 52px; border-radius: 50%; font-size: 17px; }
+.pill { width: 62px; height: 22px; border-radius: 11px; font-size: 10px; letter-spacing: 1px; }
+.shoulder { height: 34px; width: 88px; border-radius: 14px 14px 8px 8px; font-size: 12px; top: 8px; }
+.dpad { position: absolute; left: 34px; top: 76px; width: 140px; height: 140px; }
+.dpad .key { width: 46px; height: 48px; border-radius: 8px; }
+.ring { position: absolute; width: 132px; height: 132px; }
+.ring svg { width: 100%; height: 100%; overflow: visible; }
+.ovl { position: absolute; left: 212px; top: 10px; width: 640px; height: 480px; display: grid; place-items: center; background: #090b12f0;
+  border-radius: 10px; text-align: center; padding: 28px; }
+.ovl h2 { font: 600 26px Fredoka, sans-serif; margin: 0 0 8px; }
+.ovl p { color: var(--ink-dim); margin: 6px 0; font-size: 16px; }
+.ovl .go { margin-top: 18px; font: 700 16px Figtree, sans-serif; color: #1a1407; background: var(--gold); border: 0; border-radius: 12px; padding: 12px 22px; cursor: pointer; }
+.ovl video { width: 100%; max-height: 330px; border-radius: 10px; background: #000; }
+.ovl code { font: 500 12px "JetBrains Mono", monospace; color: #c9cfe6; word-break: break-all; }
+.ovl .bar { width: 260px; height: 6px; background: #ffffff14; border-radius: 3px; overflow: hidden; margin: 14px auto 0; }
+.ovl .bar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .2s; }
+#turn { display: none; position: fixed; inset: 46px 0 0; place-items: center; text-align: center; color: var(--ink-dim); padding: 24px; }
+@media (orientation: portrait) and (max-width: 820px) { #turn { display: grid; } #stage { visibility: hidden; } }
+</style>
+
+<div class="top">
+  <div class="brand">Zappo <b>X</b> preview</div>
+  <span class="chip" id="speed">starting…</span>
+  <span class="chip" id="pad" hidden>controller</span>
+  <div class="spacer"></div>
+  <button class="tbtn" id="bench">Speed test</button>
+  <button class="tbtn" id="full">Full screen</button>
+</div>
+<div id="stage"><div id="dev">
+  <!-- a plain layout: the screen as big as it fits, the RG40XX H's controls either side -->
+  <div class="key shoulder" data-b="10" style="left:12px">L2</div>
+  <div class="key shoulder" data-b="8" style="left:106px">L1</div>
+  <div class="key shoulder" data-b="9" style="left:862px">R1</div>
+  <div class="key shoulder" data-b="11" style="left:956px">R2</div>
+  <canvas id="screen" width="640" height="480"></canvas>
+  <div class="dpad">
+    <div class="key" data-b="0" style="left:47px;top:0">▲</div>
+    <div class="key" data-b="2" style="left:0;top:46px">◀</div>
+    <div class="key" data-b="3" style="left:94px;top:46px">▶</div>
+    <div class="key" data-b="1" style="left:47px;top:92px">▼</div>
+  </div>
+  <div class="key round" data-b="6" style="left:938px;top:72px">X</div>
+  <div class="key round" data-b="7" style="left:883px;top:124px">Y</div>
+  <div class="key round" data-b="4" style="left:993px;top:124px">A</div>
+  <div class="key round" data-b="5" style="left:938px;top:176px">B</div>
+  <div class="key pill" data-b="12" style="left:73px;top:252px">SELECT</div>
+  <div class="key pill" data-b="13" style="left:933px;top:252px">START</div>
+  <div class="key pill" data-b="14" style="left:933px;top:462px">MENU</div>
+  <div class="ring" id="ringL" style="left:38px;top:300px"></div>
+  <div class="ring" id="ringR" style="left:898px;top:300px"></div>
+  <div id="ovl" class="ovl"><div><h2>Zappo X</h2><p id="ovlmsg">Loading the card…</p><div class="bar"><i id="ovlbar"></i></div></div></div>
+</div></div>
+<div id="turn"><div><p style="font:600 20px Fredoka,sans-serif;color:#e9ecf5">Turn the tablet sideways</p><p>Zappo X is landscape, like the RG40XX H.</p></div></div>
+
+<script>
+/*__RUNTIME__*/
+</script>
+<script>
+(() => {
+  "use strict";
+  const { MemFS, Sound, Zappo } = window.ZappoRuntime;
+  const $ = (id) => document.getElementById(id);
+  const dev = $("dev"), stage = $("stage"), ovl = $("ovl"), ovlmsg = $("ovlmsg"), speed = $("speed");
+
+  /* ------------------------------------------------ fit the handheld */
+  function fit() {
+    const r = stage.getBoundingClientRect();
+    const s = Math.min(r.width / 1072, r.height / 504);
+    dev.style.transform = `translate(${-532 * s}px, ${-250 * s}px) scale(${s})`;
+  }
+  addEventListener("resize", fit); fit();
+
+  /* ------------------------------------------------- the stick lights */
+  /* The default planned for Zappo X: the rings take the colour of the section
+     you're in (Recent electric, Favorites crystal, Consoles fire, Music water,
+     Videos ice, Settings leaf).  8 LEDs a ring, as on the RG40XX H. */
+  const SECTION = ["#f5c842", "#b57cff", "#ff8a1f", "#3fc1ff", "#8fd3ff", "#e9ecf5", "#9fd84a"];
+  function ringSVG() {
+    let s = '<svg viewBox="-66 -66 132 132"><defs><filter id="g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter></defs>';
+    s += '<circle r="58" fill="none" stroke="#2b2e3a" stroke-width="5"/>';
+    for (let i = 0; i < 8; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 4, x = (50 * Math.cos(a)).toFixed(1), y = (50 * Math.sin(a)).toFixed(1);
+      s += `<circle class="glow" cx="${x}" cy="${y}" r="13" filter="url(#g)"/><circle class="led" cx="${x}" cy="${y}" r="5"/>`;
+    }
+    s += '<g class="knob"><circle r="36" fill="#181a22" stroke="#2f3240" stroke-width="2"/><circle r="26" fill="#22242e"/><circle r="15" fill="#2a2d38"/></g></svg>';
+    return s;
+  }
+  $("ringL").innerHTML = ringSVG(); $("ringR").innerHTML = ringSVG();
+  const leds = [...document.querySelectorAll(".led")], glows = [...document.querySelectorAll(".glow")];
+  function lights(colour, t, music) {
+    const k = music ? 0.55 + 0.45 * Math.abs(Math.sin(t / 260)) : 0.78 + 0.22 * Math.sin(t / 900);
+    leds.forEach((l, i) => { l.setAttribute("fill", colour); l.setAttribute("opacity", (0.55 + 0.45 * k).toFixed(2)); });
+    glows.forEach((g) => { g.setAttribute("fill", colour); g.setAttribute("opacity", (0.65 * k).toFixed(2)); });
+  }
+
+  /* ------------------------------------------------------- the card */
+  const fs = new MemFS();
+  const SAVE = "zx-file:";
+  /* the card: index.json, then every file (a few at a time) */
+  async function loadCard(onProgress) {
+    const idx = await (await fetch("card/index.json")).json();
+    const total = idx.reduce((t, f) => t + (f.s || 0), 0) || 1;
+    let got = 0, next = 0;
+    for (const f of idx) if (f.b !== undefined) fs.writeFile(f.p, Uint8Array.from(atob(f.b), (c) => c.charCodeAt(0)));
+    const todo = idx.filter((f) => f.f);
+    async function worker() {
+      while (next < todo.length) {
+        const f = todo[next++];
+        const r = await fetch("card/" + f.f);
+        if (!r.ok) throw new Error(f.p + ": " + r.status);
+        const d = new Uint8Array(await r.arrayBuffer());
+        fs.writeFile(f.p, d);
+        got += d.length;
+        onProgress(got / total);
+      }
+    }
+    await Promise.all([worker(), worker(), worker(), worker(), worker(), worker()]);
+  }
+  function restore() {   /* your settings from earlier visits (this browser only) */
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k.startsWith(SAVE)) continue;
+        const b = atob(localStorage.getItem(k));
+        fs.writeFile(k.slice(SAVE.length), Uint8Array.from(b, (c) => c.charCodeAt(0)));
+      }
+    } catch (e) { /* private window or storage off: start fresh */ }
+  }
+  function persist() {
+    for (const p of [...fs.changed]) {
+      fs.changed.delete(p);
+      if (!p.startsWith("/mmc/CFW/clove/")) continue;
+      const d = fs.readFile(p);
+      try {
+        if (!d) localStorage.removeItem(SAVE + p);
+        else if (d.length < 400000) {
+          let s = ""; for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode.apply(null, d.subarray(i, i + 0x8000));
+          localStorage.setItem(SAVE + p, btoa(s));
+        }
+      } catch (e) { /* storage full or off */ }
+    }
+  }
+  async function fetchBytes(url, onProgress) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(url + ": " + r.status);
+    const total = +r.headers.get("content-length") || 0;
+    if (!r.body || !total) return await r.arrayBuffer();
+    const reader = r.body.getReader(); const parts = []; let got = 0;
+    for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; onProgress && onProgress(got / total); }
+    const out = new Uint8Array(got); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out.buffer;
+  }
+
+  /* ------------------------------------------------------- buttons */
+  const sound = new Sound();
+  const held = new Map();     /* button -> sources holding it */
+  let z = null;
+  function press(b, down, src) {
+    sound.wake();
+    const set = held.get(b) || new Set();
+    const was = set.size > 0;
+    down ? set.add(src) : set.delete(src);
+    held.set(b, set);
+    const now = set.size > 0;
+    if (was !== now) {
+      if (z && z.running && ovl.hidden) z.key(b, now);   /* not while a message is up */
+      document.querySelectorAll(`.key[data-b="${b}"]`).forEach((k) => k.classList.toggle("on", now));
+      if (now && !ovl.hidden && ovlAction && (b === 4 || b === 5 || b === 13)) ovlAction();
+    }
+  }
+  document.querySelectorAll(".key").forEach((k) => {
+    const b = +k.dataset.b;
+    k.addEventListener("pointerdown", (e) => { e.preventDefault(); k.setPointerCapture(e.pointerId); press(b, 1, "t" + e.pointerId); });
+    const up = (e) => press(b, 0, "t" + e.pointerId);
+    k.addEventListener("pointerup", up); k.addEventListener("pointercancel", up); k.addEventListener("lostpointercapture", up);
+  });
+  const KEYS = { ArrowUp: 0, ArrowDown: 1, ArrowLeft: 2, ArrowRight: 3, KeyX: 4, Enter: 4, KeyZ: 5, Backspace: 5, KeyS: 6, KeyA: 7,
+    KeyQ: 8, KeyW: 9, Digit1: 10, Digit2: 11, ShiftRight: 12, ShiftLeft: 12, Space: 13, Escape: 14, KeyM: 14 };
+  addEventListener("keydown", (e) => { const b = KEYS[e.code]; if (b !== undefined) { e.preventDefault(); if (!e.repeat) press(b, 1, "k" + e.code); } });
+  addEventListener("keyup", (e) => { const b = KEYS[e.code]; if (b !== undefined) press(b, 0, "k" + e.code); });
+  /* The two sticks, on screen: drag them.  Left stick = the d-pad; right
+     stick left/right = L1/R1 (sections), up/down = L2/R2 (a page at a time). */
+  const STICK = { L: [2, 3, 0, 1], R: [8, 9, 10, 11] };   /* left, right, up, down */
+  function stickDirs(side, x, y, src) {
+    const [l, r, u, d] = STICK[side];
+    const m = Math.hypot(x, y) > 0.35;
+    const horiz = Math.abs(x) >= Math.abs(y);
+    press(l, m && horiz && x < 0 ? 1 : 0, src); press(r, m && horiz && x > 0 ? 1 : 0, src);
+    press(u, m && !horiz && y < 0 ? 1 : 0, src); press(d, m && !horiz && y > 0 ? 1 : 0, src);
+  }
+  function knob(side, x, y) {
+    const k = document.querySelector("#ring" + side + " .knob");
+    if (k) k.setAttribute("transform", `translate(${(x * 14).toFixed(1)} ${(y * 14).toFixed(1)})`);
+  }
+  ["L", "R"].forEach((side) => {
+    const el = $("ring" + side);
+    let id = null;
+    const move = (e) => {
+      const r = el.getBoundingClientRect();
+      let x = (e.clientX - (r.left + r.width / 2)) / (r.width / 2), y = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+      const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
+      knob(side, x, y); stickDirs(side, x, y, "s" + side);
+    };
+    el.style.touchAction = "none"; el.style.cursor = "grab";
+    el.addEventListener("pointerdown", (e) => { e.preventDefault(); id = e.pointerId; el.setPointerCapture(id); sound.wake(); move(e); });
+    el.addEventListener("pointermove", (e) => { if (e.pointerId === id) move(e); });
+    const end = (e) => { if (e.pointerId !== id) return; id = null; knob(side, 0, 0); stickDirs(side, 0, 0, "s" + side); };
+    el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end); el.addEventListener("lostpointercapture", end);
+  });
+
+  /* Bluetooth or USB controllers, by position: bottom = B, right = A, left = Y,
+     top = X - the RG40XX H's own layout. */
+  const PAD = { 0: 5, 1: 4, 2: 7, 3: 6, 4: 8, 5: 9, 6: 10, 7: 11, 8: 12, 9: 13, 12: 0, 13: 1, 14: 2, 15: 3, 16: 14 };
+  function pollPads() {
+    let pads = [];
+    try { pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []; } catch (e) { return; }
+    $("pad").hidden = !pads.length;
+    if (pads.length) $("pad").textContent = "🎮 " + pads[0].id.replace(/\s*\(.*$/, "").slice(0, 26);
+    pads.forEach((p, pi) => {
+      for (const [i, b] of Object.entries(PAD)) { const btn = p.buttons[+i]; if (btn) press(b, btn.pressed ? 1 : 0, "p" + pi + "-" + i); }
+      const ax = p.axes[0] || 0, ay = p.axes[1] || 0, bx = p.axes[2] || 0, by = p.axes[3] || 0;
+      stickDirs("L", Math.abs(ax) > 0.5 ? ax : 0, Math.abs(ay) > 0.5 ? ay : 0, "pl" + pi);
+      stickDirs("R", Math.abs(bx) > 0.5 ? bx : 0, Math.abs(by) > 0.5 ? by : 0, "pr" + pi);
+      if (pi === 0) { knob("L", ax, ay); knob("R", bx, by); }
+    });
+  }
+
+  /* ------------------------------------------------ a game was chosen */
+  let ovlAction = null;
+  function showLaunch(cmd, back) {
+    const m = /-L "([^"]+)" '((?:[^']|'\\'')*)'/.exec(cmd || "");
+    const core = m ? m[1].split("/").pop().replace(/_libretro\.so$/, "") : "";
+    const rom = m ? m[2].replace(/'\\''/g, "'") : "";
+    const name = rom.split("/").pop();
+    const body = ovl.firstElementChild;
+    if (core === "ffmpeg" && !NATIVE && fs.readFile(rom)) {
+      const url = URL.createObjectURL(new Blob([fs.readFile(rom)], { type: "video/mp4" }));
+      body.innerHTML = `<div><video src="${url}" controls autoplay playsinline></video><p>${esc(name)} - on the RG40XX H this plays in RetroArch's film player.</p><button class="go">Back to Zappo</button></div>`;
+    } else {
+      const what = rom ? `starts <b>${esc(name)}</b> with RetroArch's <b>${esc(core)}</b> emulator` : `opens <b>RetroArch</b>`;
+      body.innerHTML = `<div><h2>Game time</h2><p>On the RG40XX H, this ${what}.</p><p>The games here are stand-ins: this preview is for the menus, music and look.</p><button class="go">Back to Zappo</button><p style="margin-top:18px"><code>${esc(cmd.split("\n").filter((l) => l && !l.startsWith("#")).slice(-1)[0] || "")}</code></p></div>`;
+    }
+    ovl.hidden = false;
+    ovlAction = async () => { ovlAction = null; const v = body.querySelector("video"); if (v) v.pause(); ovl.hidden = true; if (back) back(); else await boot(); };
+    body.querySelector(".go").onclick = () => ovlAction && ovlAction();
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  /* --------------------------- full speed: Zappo runs natively (Termux) */
+  /* zappo-tablet serves this page and streams the picture over a WebSocket:
+     "F" + rows of RGB565, "A" + sound; text: "t tab music median p95 n",
+     "l command" (a game was chosen), "a rate ch", "b level", "q". */
+  class NativeEngine {
+    constructor() {
+      this.running = false; this.frameMs = []; this.stats = null; this._tab = 2; this._music = 0;
+      this.ctx = $("screen").getContext("2d", { alpha: false });
+      this.img = this.ctx.createImageData(640, 480);
+      this.px = new Uint32Array(this.img.data.buffer);
+    }
+    connect() {
+      const ws = new WebSocket("ws://" + location.host + "/ws");
+      ws.binaryType = "arraybuffer";
+      this.ws = ws;
+      ws.onopen = () => { this.running = true; ovl.hidden = true; ovlAction = null; ws.send("full"); for (const [b, set] of held) if (set.size) this.key(b, 1); };
+      ws.onclose = () => {
+        this.running = false;
+        if (ovl.hidden || !ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo X stopped</h2><p>Start it again in Termux:</p><p><code>~/zappo-x/tablet/run.sh</code></p></div>'; }
+        setTimeout(() => this.connect(), 2000);
+      };
+      ws.onmessage = (e) => {
+        if (typeof e.data === "string") return this.text(e.data);
+        const u8 = new Uint8Array(e.data);
+        if (u8[0] === 70) {            /* F: rows y0..y1 */
+          const y0 = (u8[1] << 8) | u8[2], y1 = (u8[3] << 8) | u8[4];
+          const n = (y1 - y0 + 1) * 640;
+          const src = new Uint16Array(e.data.slice(5, 5 + n * 2));
+          const px = this.px, o = y0 * 640;
+          for (let i = 0; i < n; i++) {
+            const v = src[i];
+            const r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31;
+            px[o + i] = 0xff000000 | (((b << 3) | (b >> 2)) << 16) | (((g << 2) | (g >> 4)) << 8) | ((r << 3) | (r >> 2));
+          }
+          this.ctx.putImageData(this.img, 0, 0, 0, y0, 640, y1 - y0 + 1);
+        } else if (u8[0] === 65) {     /* A: sound */
+          const pcm = new Int16Array(e.data.slice(1, 1 + ((u8.length - 1) & ~1)));
+          sound.push(pcm, pcm.length / sound.ch);
+        }
+      };
+    }
+    text(m) {
+      const [k, ...rest] = m.split(" ");
+      if (k === "t") {
+        const [tab, music, med, p95, n] = rest.map(Number);
+        this._tab = tab; this._music = music; this.stats = { med, p95, n };
+      } else if (k === "l") { showLaunch(m.slice(2), () => this.ws.send("back")); }
+      else if (k === "a") { if (rest[0] === "end") sound.stop(false); else { sound.wake(); sound.open(+rest[0], +rest[1]); } }
+      else if (k === "b") { const lv = +rest[0]; $("screen").style.filter = lv <= 0 ? "brightness(0)" : `brightness(${(0.35 + lv * 0.065).toFixed(2)})`; }
+      else if (k === "q") { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo closed</h2></div>'; }
+    }
+    frame() { return true; }
+    key(b, down) { if (this.running) this.ws.send(`k ${b} ${down ? 1 : 0}`); }
+    tab() { return this._tab; }
+    musicPlaying() { return this._music; }
+  }
+
+  /* ------------------------------------------------------- run */
+  const NATIVE = !!window.ZAPPO_NATIVE;
+  let wasm = null, benchUntil = 0, benchHold = 0;
+  async function boot() {
+    if (NATIVE) { if (!z) { z = new NativeEngine(); z.connect(); } return; }
+    z = new Zappo({
+      fs, canvas: $("screen"), sound,
+      hooks: {
+        battery: () => battery.level, charging: () => battery.charging,
+        brightness: (lv) => { $("screen").style.filter = lv <= 0 ? "brightness(0)" : `brightness(${(0.35 + lv * 0.065).toFixed(2)})`; },
+        describe: () => `Browser: ${navigator.userAgent.match(/(Chrome|Firefox|Safari)\/[\d.]+/)?.[0] || "unknown"}\nCPU threads: ${navigator.hardwareConcurrency || "?"}`,
+        power: () => { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Switched off</h2><p>On the handheld, this powers off.</p><button class="go">Switch on</button></div>'; ovlAction = async () => { ovlAction = null; ovl.hidden = true; await boot(); }; ovl.querySelector(".go").onclick = () => ovlAction(); },
+      },
+    });
+    await z.load(wasm);
+    await z.start();
+    for (const [b, set] of held) if (set.size) z.key(b, 1);
+  }
+  const battery = { level: 76, charging: 0 };
+  try { navigator.getBattery && navigator.getBattery().then((b) => { const u = () => { battery.level = Math.round(b.level * 100); battery.charging = b.charging ? 1 : 0; }; u(); b.onlevelchange = b.onchargingchange = u; }).catch(() => {}); } catch (e) {}
+
+  let lastSave = 0, fpsT = 0, fpsN = 0;
+  function loop(t) {
+    pollPads();
+    if (z && z.running) {
+      if (!z.frame()) {
+        persist();
+        if (z.state === 1 /* UI_LAUNCH */) showLaunch(z.launched || "");
+        else if (!ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo closed</h2><button class="go">Start again</button></div>'; ovlAction = async () => { ovlAction = null; ovl.hidden = true; await boot(); }; ovl.querySelector(".go").onclick = () => ovlAction(); }
+      }
+      const tab = z.tab();
+      lights(SECTION[tab] || SECTION[2], t, tab === 3 && z.musicPlaying());
+    }
+    if (t - lastSave > 3000) { lastSave = t; persist(); }
+    fpsN++;
+    if (t - fpsT > 1000 && z && t > benchHold) {
+      const ms = z.frameMs.slice(-120).sort((a, b) => a - b);
+      const med = NATIVE ? (z.stats ? z.stats.med : 0) : ms.length ? ms[ms.length >> 1] : 0;
+      speed.textContent = benchUntil > t ? "speed test…" : NATIVE ? `full speed · draw ${med.toFixed(1)} ms` : `${Math.round((fpsN * 1000) / (t - fpsT))} fps · draw ${med.toFixed(1)} ms`;
+      fpsT = t; fpsN = 0;
+    }
+    if (benchUntil && t > benchUntil) finishBench();
+    requestAnimationFrame(loop);
+  }
+
+  /* speed test: a fixed tour of the menus while timing every picture */
+  const TOUR = [9, 9, 9, 9, 8, 8, 8, 8, 3, 3, 3, 1, 1, 0, 9, 9, 1, 1, 1, 0, 0, 8, 8, 3, 3, 2, 2];
+  let tourTimer = null;
+  $("bench").onclick = () => {
+    if (!z || !z.running) return;
+    z.frameMs.length = 0;
+    if (NATIVE) z.ws.send("reset");
+    benchUntil = performance.now() + TOUR.length * 380 + 600;
+    let i = 0;
+    clearInterval(tourTimer);
+    tourTimer = setInterval(() => {
+      if (i >= TOUR.length) { clearInterval(tourTimer); return; }
+      const b = TOUR[i++]; z.key(b, 1); setTimeout(() => z.key(b, 0), 90);
+    }, 380);
+  };
+  function finishBench() {
+    benchUntil = 0;
+    benchHold = performance.now() + 30000;   /* keep the result up for a while */
+    if (NATIVE) {
+      const st = z.stats;
+      if (st && st.n) speed.textContent = `full-speed test: ${st.n} pictures · median ${st.med.toFixed(1)} ms · slowest 5% ${st.p95.toFixed(1)} ms`;
+      return;
+    }
+    const ms = z.frameMs.slice().sort((a, b) => a - b);
+    if (!ms.length) return;
+    const med = ms[ms.length >> 1], p95 = ms[Math.floor(ms.length * 0.95)];
+    speed.textContent = `test: ${ms.length} pictures · median ${med.toFixed(1)} ms · slowest 5% ${p95.toFixed(1)} ms`;
+  }
+
+  $("full").onclick = () => { const d = document.documentElement; try { (d.requestFullscreen || d.webkitRequestFullscreen).call(d).catch?.(() => {}); } catch (e) {} };
+
+  (async () => {
+    if (NATIVE) { await boot(); requestAnimationFrame(loop); return; }
+    try {
+      const [w] = await Promise.all([
+        fetchBytes("zappo.wasm"),
+        loadCard((f) => { $("ovlbar").style.width = (f * 100).toFixed(0) + "%"; }),
+      ]);
+      wasm = w;
+      restore();
+      await boot();
+      ovl.hidden = true;
+      requestAnimationFrame(loop);
+    } catch (e) {
+      ovlmsg.innerHTML = "Zappo X couldn't start in this browser.<br><code>" + esc(e && e.message || e) + "</code>";
+      console.error(e);
+    }
+  })();
+})();
+</script>

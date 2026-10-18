@@ -1,0 +1,29 @@
+{
+  "name": "Swirl Violet",
+  "colors": {
+    "background": "#1b0739",
+    "background2": "#0d031c",
+    "surface": "#100423aa",
+    "surface_highlight": "#300c66cc",
+    "text": "#f6f8f4",
+    "text_dim": "#c8b8d8",
+    "accent": "#c3a2f7",
+    "accent_text": "#1d0b33",
+    "favorite": "#ffd479",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "background": "background.png",
+  "background_dim": 0,
+  "radius": 14,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

@@ -1,0 +1,29 @@
+{
+  "name": "Swirl Blue",
+  "colors": {
+    "background": "#05133f",
+    "background2": "#02091f",
+    "surface": "#030c26aa",
+    "surface_highlight": "#092370cc",
+    "text": "#f6f8f4",
+    "text_dim": "#aac2d8",
+    "accent": "#6fb4ff",
+    "accent_text": "#04142e",
+    "favorite": "#ffd479",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "background": "background.png",
+  "background_dim": 0,
+  "radius": 14,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

@@ -1,0 +1,29 @@
+{
+  "name": "Swirl Green",
+  "colors": {
+    "background": "#052e09",
+    "background2": "#021704",
+    "surface": "#031c05aa",
+    "surface_highlight": "#095310cc",
+    "text": "#f6f8f4",
+    "text_dim": "#b5d38e",
+    "accent": "#7be05a",
+    "accent_text": "#0b2a06",
+    "favorite": "#ffd479",
+    "shadow": "#00000080"
+  },
+  "font": {
+    "file": "FiraSansCondensed-Regular.ttf",
+    "title": 28,
+    "body": 23,
+    "small": 18
+  },
+  "background": "background.png",
+  "background_dim": 0,
+  "radius": 14,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

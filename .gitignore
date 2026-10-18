@@ -1,0 +1,5 @@
+build/
+blockbox/build/
+__pycache__/
+release/out/
+*.part

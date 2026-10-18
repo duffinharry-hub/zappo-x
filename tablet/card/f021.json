@@ -1,0 +1,7 @@
+{
+  "name": "GarlicOS skin",
+  "base": "garlic",
+  "radius": 6,
+  "home_layout": "carousel",
+  "game_layout": "list_art"
+}

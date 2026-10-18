@@ -1,0 +1,13 @@
+{
+	"joystick": {
+		"a": 0, "b": 1, "x": 2, "y": 3,
+		"l1": 5, "r1": 6, "select": 7, "start": 8,
+		"menu": 9, "volup": 10, "voldown": 11,
+		"l2_axis": 2, "r2_axis": 5
+	},
+	"keys": {
+		"power": [116],
+		"volup": [115],
+		"voldown": [114]
+	}
+}

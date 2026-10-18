@@ -1,0 +1,6 @@
+# Zappo - nicer names for films on the card. One per line:
+#   file name without extension = Name on the card
+#   file name without extension = skip          (leave this file out)
+# Names are matched without the extension, and without a YouTube downloader's
+# "YTDown.com_YouTube_Media_<id>_" prefix. Scene names like
+# "Film.Name.2018.1080p-group" become "Film Name (2018)" by themselves.

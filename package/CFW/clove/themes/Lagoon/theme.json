@@ -1,0 +1,24 @@
+{
+  "name": "Lagoon",
+  "colors": {
+    "background": "#0d4a50",
+    "background2": "#05191d",
+    "surface": "#04222699",
+    "surface_highlight": "#0b3c42cc",
+    "text": "#effaf7",
+    "text_dim": "#9cc9c3",
+    "accent": "#ff9fb1",
+    "accent_text": "#2b0b14",
+    "favorite": "#ffd479",
+    "shadow": "#00000080"
+  },
+  "font": { "file": "FiraSansCondensed-Regular.ttf", "title": 28, "body": 23, "small": 18 },
+  "background": "background.png",
+  "background_dim": 40,
+  "radius": 14,
+  "home_layout": "carousel",
+  "game_layout": "list_art",
+  "list_rows": 9,
+  "art_side": "right",
+  "text_align": "left"
+}

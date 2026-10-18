@@ -1,0 +1,3 @@
+# Zappo X device twin: the stick-light controller is the twin's second virtio
+# console (the first carries the start-up messages); give it the handheld's name for it, /dev/ttyS5.
+KERNEL=="hvc1", SYMLINK+="ttyS5", MODE="0660"

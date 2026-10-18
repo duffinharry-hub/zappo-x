@@ -1,0 +1,20 @@
+{
+  "name": "Paper",
+  "colors": {
+    "background": "#f1ebe1",
+    "background2": "#e4dccf",
+    "surface": "#fbf8f3",
+    "surface_highlight": "#ffffff",
+    "text": "#2a2622",
+    "text_dim": "#8a8175",
+    "accent": "#d2553c",
+    "accent_text": "#fffaf3",
+    "favorite": "#d2553c",
+    "shadow": "#5a4a3540"
+  },
+  "font": { "file": "FiraSansCondensed-Regular.ttf", "title": 28, "body": 23, "small": 18 },
+  "radius": 14,
+  "home_layout": "list",
+  "game_layout": "list_art",
+  "list_rows": 9
+}
