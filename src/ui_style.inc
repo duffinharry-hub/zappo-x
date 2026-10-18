@@ -161,7 +161,8 @@ static void tint_step(float k) {
 	if (!tint_has) return;
 	float t[3] = {(float)((tint_want >> 16) & 255), (float)((tint_want >> 8) & 255), (float)(tint_want & 255)};
 	for (int i = 0; i < 3; i++) {
-		if (tint_cur[i] < 0 || !g_set.animations) { tint_cur[i] = t[i]; continue; }
+		/* (a jump: still one more picture, so the new colour shows) */
+		if (tint_cur[i] < 0 || !g_set.animations) { if (tint_cur[i] != t[i]) animating = 1; tint_cur[i] = t[i]; continue; }
 		float d = t[i] - tint_cur[i];
 		if (fabsf(d) < 0.6f) tint_cur[i] = t[i];
 		else { tint_cur[i] += d * k * 0.45f; animating = 1; }

@@ -6,7 +6,7 @@ ARM_TOOLCHAIN ?= /opt/arm-rpi-4.9.3-linux-gnueabihf   # any arm-linux-gnueabihf 
 ARM_CC ?= $(ARM_TOOLCHAIN)/bin/arm-linux-gnueabihf-gcc
 ARM_STRIP ?= $(ARM_TOOLCHAIN)/bin/arm-linux-gnueabihf-strip
 
-COMMON = src/util.c src/plat_common.c src/gfx.c src/font.c src/config.c src/data.c src/net.c src/import.c src/music.c src/musiclib.c src/playlists.c src/decoders.c src/video.c src/ui.c src/main.c third_party/cJSON.c third_party/qrcodegen.c
+COMMON = src/util.c src/plat_common.c src/gfx.c src/scene.c src/font.c src/config.c src/data.c src/net.c src/import.c src/music.c src/musiclib.c src/playlists.c src/decoders.c src/video.c src/ui.c src/main.c third_party/cJSON.c third_party/qrcodegen.c
 CFLAGS_COMMON = -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
 
 .PHONY: all host arm web tablet knulli clean
@@ -58,6 +58,12 @@ build/zappo-x: $(COMMON) src/plat_knulli.c src/plat_evdev.inc src/data_knulli.in
 	@mkdir -p build
 	$(KNULLI_CC) $(CFLAGS_COMMON) -O2 -g -mcpu=cortex-a53 -DZAPPO_KNULLI -o $@.debug $(COMMON) src/plat_knulli.c -lSDL2 -lm -lpthread
 	$(KNULLI_STRIP) -o $@ $@.debug
+
+# the moving backgrounds, drawn on the PC to look at: frames as PPM on stdout
+#   build/scene_preview art/zappo_friends.png -1 12 | ffmpeg -f image2pipe -c:v ppm -i - out.mp4
+build/scene_preview: tools/scene_preview.c src/scene.c src/scene.h
+	@mkdir -p build
+	$(CC) -O2 -o $@ tools/scene_preview.c src/scene.c -lm
 
 clean:
 	rm -rf build

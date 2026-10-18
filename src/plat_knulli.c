@@ -32,6 +32,7 @@ static int lights_tick(int wait_ms);
 #define PLAT_IDLE_HOOK lights_tick
 #include "plat_evdev.inc"
 #include "config.h"
+#include "scene.h"
 #include "ui.h"
 
 #define CPU_DIR "/sys/devices/system/cpu/cpu0/cpufreq"
@@ -318,6 +319,212 @@ void plat_keep_awake(int on) {
 	} else unlink(SAVER_PAUSE);
 }
 
+/* ------------------------------------------------- the moving backgrounds */
+
+/* Three layers, put together by the GPU each frame: the background picture,
+ * the section's particles (scene.c), and Zappo's menu drawn see-through
+ * (premultiplied) by the software renderer - which only redraws it when
+ * something changes. */
+static SDL_Texture *bgtex, *atlas, *oldtex;
+static uint64_t fade_start;	/* changing section: the old menu fades out (GPU only) */
+#define FADE_MS 180
+static SDL_FRect sp_uv[SP_COUNT];	/* where each particle picture sits in the atlas (0..1) */
+static int scene_on, scene_ready = -1;
+static uint64_t scene_last, scene_next;
+static SDL_BlendMode premul;
+static int scene_ms = 33;	/* 30 frames a second; fewer on a GPU done in software (the twin's) */
+static int soft_gpu;
+static uint32_t soft_bg[SCREEN_W * SCREEN_H];	/* the background, for putting the picture together without the GPU */
+
+static int scene_init(void) {
+	if (scene_ready >= 0) return scene_ready;
+	scene_ready = 0;
+	bgtex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H);
+	if (!bgtex) { LOG("scene: no background texture (%s)", SDL_GetError()); return 0; }
+	SDL_SetTextureBlendMode(bgtex, SDL_BLENDMODE_NONE);
+	/* the particle pictures side by side in one texture, so all the particles
+	 * go out in two draws (one blended, one glowing) instead of one each */
+	int aw = 0, ah = 0;
+	for (int i = 0; i < SP_COUNT; i++) {
+		int w, h;
+		scene_sprite(i, &w, &h);
+		aw += w + 2;
+		if (h + 2 > ah) ah = h + 2;
+	}
+	uint32_t *apx = calloc((size_t)(aw * ah), 4);
+	if (!apx) return 0;
+	for (int i = 0, x = 1; i < SP_COUNT; i++) {
+		int w, h;
+		const uint32_t *px = scene_sprite(i, &w, &h);
+		for (int y = 0; y < h; y++) memcpy(apx + (y + 1) * aw + x, px + y * w, (size_t)w * 4);
+		sp_uv[i] = (SDL_FRect){(float)x / aw, 1.0f / ah, (float)w / aw, (float)h / ah};
+		x += w + 2;
+	}
+	atlas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, aw, ah);
+	if (atlas) {
+		SDL_UpdateTexture(atlas, NULL, apx, aw * 4);
+		SDL_SetTextureScaleMode(atlas, SDL_ScaleModeLinear);
+	}
+	free(apx);
+	if (!atlas) { LOG("scene: no particle texture (%s)", SDL_GetError()); return 0; }
+	/* the menu: already multiplied by its own cover */
+	premul = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
+	                                    SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD);
+	if (SDL_SetTextureBlendMode(tex, premul) != 0) { LOG("scene: the GPU can't layer (%s)", SDL_GetError()); return 0; }
+	SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_NONE);
+	/* which GPU: the handheld's Mali, or Mesa drawing in software (the twin) */
+	typedef const unsigned char *(*GetString)(unsigned);
+	GetString gs = (GetString)SDL_GL_GetProcAddress("glGetString");
+	const char *gpu = gs ? (const char *)gs(0x1F01 /* GL_RENDERER */) : NULL;
+	if (gpu && (strstr(gpu, "softpipe") || strstr(gpu, "llvmpipe"))) { soft_gpu = 1; scene_ms = 100; }
+	scene_ready = 1;
+	LOG("scene: ready on %s, a frame every %d ms", gpu ? gpu : "an unknown GPU", scene_ms);
+	return 1;
+}
+
+int plat_layers_ok(void) { return ren && tex && scene_init(); }
+
+void plat_scene(const uint32_t *bg, int bg_changed, int element, int density) {
+	int on = bg != NULL && scene_init();
+	if (on && bg_changed && soft_gpu) memcpy(soft_bg, bg, sizeof soft_bg);	/* (kept: the menu's may go away) */
+	if (on && bg_changed && !soft_gpu) {
+		if (SDL_UpdateTexture(bgtex, NULL, bg, SCREEN_W * 4) != 0) {
+			static int logged;
+			if (!logged++) LOG("scene: background picture: %s", SDL_GetError());
+		}
+	}
+	if (on != scene_on) {
+		SDL_SetTextureBlendMode(tex, on && !soft_gpu ? premul : SDL_BLENDMODE_NONE);
+		scene_last = now_ms();
+	}
+	scene_on = on;
+	scene_set(on ? element : EL_NONE, density);
+}
+
+static void draw_particles(void) {
+	static SceneQuad q[256];
+	static SDL_Vertex v[2][256 * 4];
+	static int idx[256 * 6];
+	if (!idx[1]) for (int i = 0; i < 256; i++) {
+		int *p = idx + i * 6;
+		p[0] = i * 4; p[1] = i * 4 + 1; p[2] = i * 4 + 2; p[3] = i * 4; p[4] = i * 4 + 2; p[5] = i * 4 + 3;
+	}
+	uint64_t now = now_ms();
+	float dt = scene_last ? (now - scene_last) / 1000.0f : 0.033f;
+	scene_last = now;
+	int n = scene_update(dt, q, 256), nv[2] = {0, 0};
+	for (int i = 0; i < n; i++) {
+		int g = q[i].additive ? 1 : 0;
+		SDL_Vertex *o = v[g] + nv[g];
+		nv[g] += 4;
+		float a = q[i].angle * 0.017453293f, c = cosf(a), sn = sinf(a), hw = q[i].w / 2, hh = q[i].h / 2;
+		const SDL_FRect *uv = &sp_uv[q[i].sprite];
+		SDL_Color col = {(Uint8)(q[i].tint >> 16), (Uint8)(q[i].tint >> 8), (Uint8)q[i].tint, (Uint8)(q[i].alpha * 255 + 0.5f)};
+		static const float CX[4] = {-1, 1, 1, -1}, CY[4] = {-1, -1, 1, 1};
+		for (int k = 0; k < 4; k++) {
+			float dx = CX[k] * hw, dy = CY[k] * hh;
+			o[k].position.x = q[i].x + dx * c - dy * sn;
+			o[k].position.y = q[i].y + dx * sn + dy * c;
+			o[k].color = col;
+			o[k].tex_coord.x = uv->x + (CX[k] > 0 ? uv->w : 0);
+			o[k].tex_coord.y = uv->y + (CY[k] > 0 ? uv->h : 0);
+		}
+	}
+	/* the solid ones first, then the glows over them */
+	for (int g = 0; g < 2; g++) {
+		if (!nv[g]) continue;
+		SDL_SetTextureBlendMode(atlas, g ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
+		SDL_RenderGeometry(ren, atlas, v[g], nv[g], idx, nv[g] / 4 * 6);
+	}
+}
+
+/* one picture on screen: with the moving background under the menu, or the menu alone */
+static void compose(int fresh) {
+	(void)fresh;
+	uint64_t t0 = now_ms();
+	SDL_RenderClear(ren);
+	if (scene_on && soft_gpu) {
+		/* a GPU done in software draws each whole-screen layer slowly: put
+		 * them together here and give it one */
+		static uint32_t mix[SCREEN_W * SCREEN_H];
+		static SceneQuad q[256];
+		memcpy(mix, soft_bg, sizeof mix);
+		uint64_t now = now_ms();
+		float dt = scene_last ? (now - scene_last) / 1000.0f : 0.033f;
+		scene_last = now;
+		scene_draw_soft(mix, SCREEN_W, SCREEN_H, q, scene_update(dt, q, 256));
+		for (int i = 0; i < SCREEN_W * SCREEN_H; i++) {
+			uint32_t c = canvas[i], ca = c >> 24;
+			if (ca == 255) mix[i] = c;
+			else if (ca) {
+				uint32_t d = mix[i], ia = 255 - ca;
+				uint32_t r = ((c >> 16) & 255) + ((d >> 16) & 255) * ia / 255;
+				uint32_t g = ((c >> 8) & 255) + ((d >> 8) & 255) * ia / 255;
+				uint32_t b = (c & 255) + (d & 255) * ia / 255;
+				mix[i] = 0xFF000000u | (r > 255 ? 255 : r) << 16 | (g > 255 ? 255 : g) << 8 | (b > 255 ? 255 : b);
+			}
+		}
+		SDL_UpdateTexture(bgtex, NULL, mix, SCREEN_W * 4);
+		SDL_RenderCopy(ren, bgtex, NULL, NULL);
+	} else {
+		if (scene_on) {
+			SDL_RenderCopy(ren, bgtex, NULL, NULL);
+			draw_particles();
+		}
+		uint64_t since = now_ms() - fade_start;
+		if (fade_start && scene_on && since < FADE_MS) {
+			/* both menus, premultiplied: so the colours fade with the cover */
+			Uint8 o = (Uint8)(255 - 255 * since / FADE_MS), nw = (Uint8)(255 - o);
+			SDL_SetTextureColorMod(oldtex, o, o, o);
+			SDL_SetTextureAlphaMod(oldtex, o);
+			SDL_RenderCopy(ren, oldtex, NULL, NULL);
+			SDL_SetTextureColorMod(tex, nw, nw, nw);
+			SDL_SetTextureAlphaMod(tex, nw);
+			SDL_RenderCopy(ren, tex, NULL, NULL);
+			SDL_SetTextureColorMod(tex, 255, 255, 255);
+			SDL_SetTextureAlphaMod(tex, 255);
+		} else {
+			fade_start = 0;
+			SDL_RenderCopy(ren, tex, NULL, NULL);
+		}
+	}
+	SDL_RenderPresent(ren);
+	/* a GPU done in software: no more than a fifth of the time on this */
+	if (soft_gpu) scene_ms = (int)CLAMP((now_ms() - t0) * 4, 100, 1000);
+	scene_next = now_ms() + (uint64_t)scene_ms;
+	/* how long a picture takes to put together, now and then in the log */
+	static uint64_t sum;
+	static int n, reports;
+	if (scene_on) {
+		sum += now_ms() - t0;
+		if (++n == 20 && reports < 3) { reports++; LOG("scene: %.1f ms a picture", sum / 20.0); }
+		if (n == 20) { n = 0; sum = 0; }
+	}
+}
+
+int plat_scene_frame(void) {
+	if (!scene_on || !tex) return 0;
+	uint64_t now = now_ms();
+	int step = fade_start ? 16 : scene_ms;	/* (a fade goes at 60 frames a second) */
+	if (fade_start && scene_next > now + 16) scene_next = now + 16;
+	if (now < scene_next) return (int)(scene_next - now);
+	compose(0);
+	if (fade_start) scene_next = now_ms() + 16;
+	return step;
+}
+
+void plat_transition(void) {
+	if (!scene_on || soft_gpu || !tex) return;
+	if (!oldtex) {
+		oldtex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H);
+		if (!oldtex) return;
+		SDL_SetTextureBlendMode(oldtex, premul);
+	}
+	/* the canvas still holds what's on screen: the new section isn't drawn yet */
+	SDL_UpdateTexture(oldtex, NULL, canvas, SCREEN_W * 4);
+	fade_start = now_ms();
+}
+
 void plat_present(void) {
 	frames_presented++;
 	lights_follow();
@@ -339,11 +546,7 @@ void plat_present(void) {
 	 * left switched on with nothing to show, and SDL's KMS driver only sets
 	 * it up again when a page flip fails - Zappo X draws only when something
 	 * changes, so otherwise it stayed black until the clock next ticked. */
-	for (int i = frames_presented == 1 ? 3 : 1; i > 0; i--) {
-		SDL_RenderClear(ren);
-		SDL_RenderCopy(ren, tex, NULL, NULL);
-		SDL_RenderPresent(ren);
-	}
+	for (int i = frames_presented == 1 ? 3 : 1; i > 0; i--) compose(1);
 	/* nothing listens to SDL's events, but some video drivers want them pumped */
 	SDL_PumpEvents();
 	SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);

@@ -20,6 +20,12 @@ uint32_t col_mix(uint32_t a, uint32_t b, float t);
 uint32_t col_parse(const char *s, uint32_t fallback); /* "#rrggbb" or "#rrggbbaa" */
 
 void gfx_bind(uint32_t *canvas, int w, int h);
+/* Layers (Zappo X's moving backgrounds): the canvas starts see-through and
+ * keeps track of how covered each pixel is, so it can go over a background
+ * drawn elsewhere. Its colours are then premultiplied by that cover. Binding
+ * another canvas switches this off. */
+void gfx_keep_alpha(int on);
+void gfx_clear_transparent(void);
 void gfx_clip(int x, int y, int w, int h);
 void gfx_unclip(void);
 

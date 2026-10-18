@@ -7,6 +7,7 @@
 #include "music.h"
 #include "musiclib.h"
 #include "net.h"
+#include "scene.h"
 #include "playlists.h"
 #include "util.h"
 #include "video.h"
@@ -34,6 +35,7 @@ static Font *F_TITLE, *F_BODY, *F_SMALL;
 static int g_state = UI_RUN;
 static int dirty = 1;
 static int animating;
+static int layer_mode; /* this picture is drawn see-through, over the moving background (Knulli) */
 static int pending_loads;
 static uint64_t last_tick, last_minute;
 static int settings_dirty;
@@ -472,6 +474,9 @@ static int tab_list(int *out) {
 }
 
 static void enter_tab(int t) {
+#ifdef ZAPPO_KNULLI
+	if (t != tab && g_set.animations && layer_mode) plat_transition();
+#endif
 	tab = t;
 	if (t == TAB_RECENT) { v_recent.type = V_LIST; v_recent.kind = LK_RECENT; load_list(&v_recent); clamp_cursor(&v_recent.cur, v_recent.items.n, list_rows(), 1); }
 	if (t == TAB_FAVORITES) { v_fav.type = V_LIST; v_fav.kind = LK_FAV; load_list(&v_fav); clamp_cursor(&v_fav.cur, v_fav.items.n, list_rows(), 1); }
@@ -609,11 +614,56 @@ static void draw_note(int x, int y, int h, uint32_t c);
 #include "ui_style.inc"
 
 static int shelf_screen(void);
+
+/* ---- the moving backgrounds (Knulli, M5): the background picture and the
+ * section's particles are put on screen by the GPU, under a see-through menu */
+static const uint32_t *layer_src;    /* what goes behind it */
+static unsigned layer_key;           /* which picture that is (0: changes every time) */
+static unsigned bg_gen = 1;          /* bg_img made again */
+static void layer_background(const uint32_t *px, unsigned key) { layer_src = px; layer_key = key; }
+#ifdef ZAPPO_KNULLI
+static const uint32_t *layer_src_shown;
+static unsigned layer_key_shown = ~0u;
+static uint32_t layer_buf[SCREEN_W * SCREEN_H];
+/* the element for the section on screen */
+static int section_element(void) {
+	static const int EL[TAB_COUNT] = {EL_ELECTRIC, EL_CRYSTAL, EL_FIRE, EL_WATER, EL_ICE, EL_DUST, EL_LEAF};
+	return tab >= 0 && tab < TAB_COUNT ? EL[tab] : EL_DUST;
+}
+#endif
+static void scene_publish(void) {
+#ifdef ZAPPO_KNULLI
+	if (!layer_mode || !layer_src) { plat_scene(NULL, 0, EL_NONE, 0); layer_key_shown = ~0u; return; }
+	int changed = layer_key == 0 || layer_key != layer_key_shown || layer_src != layer_src_shown;
+	layer_key_shown = layer_key;
+	layer_src_shown = layer_src;
+	plat_scene(layer_src, changed, section_element(), g_set.motion);
+#endif
+}
+
 static void draw_background(void) {
 	uint32_t *cv = plat_canvas();
+#ifdef ZAPPO_KNULLI
+	if (layer_mode) {
+		if (shelf_screen()) {
+			gfx_bind(layer_buf, SCREEN_W, SCREEN_H);
+			draw_tint_background();
+			layer_background(layer_buf, 0);
+		} else {
+			if (!bg_img && glass() && !g_theme.background_sharp) { bg_img = glass_bg_make(); bg_gen++; }
+			if (!bg_img) { layer_mode = 0; draw_background(); layer_mode = 1; }	/* (makes bg_img) */
+			layer_background(bg_img->px, bg_gen);
+		}
+		gfx_bind(cv, SCREEN_W, SCREEN_H);
+		gfx_clear_transparent();
+		gfx_keep_alpha(1);
+		return;
+	}
+#endif
 	if (shelf_screen()) { draw_tint_background(); return; }
-	if (!bg_img && glass() && !g_theme.background_sharp) bg_img = glass_bg_make();
+	if (!bg_img && glass() && !g_theme.background_sharp) { bg_img = glass_bg_make(); bg_gen++; }
 	if (!bg_img) {
+		bg_gen++;
 		bg_img = img_new(SCREEN_W, SCREEN_H);
 		gfx_bind(bg_img->px, SCREEN_W, SCREEN_H);
 		gfx_vgradient(0, 0, SCREEN_W, SCREEN_H, g_theme.bg, g_theme.bg2);
@@ -1598,6 +1648,11 @@ static void menu_build(int menu, int arg) {
 		add(18, MK_CHOICE, "Videos", g_set.video_wall ? "Wall of pictures" : "List", "How the Videos tab looks. SELECT on the Videos tab also switches it.");
 		add(20, MK_CHOICE, "Text", (const char *[]){"Regular", "Firm", "Bold"}[CLAMP(g_set.font_weight, 0, 2)],
 		    "How heavy the writing is. Firm and Bold draw the theme's font thicker, so it reads better on the small screen.");
+#ifdef ZAPPO_KNULLI
+		add(22, MK_CHOICE, "Moving backgrounds", (const char *[]){"Off", "Fewer", "On"}[CLAMP(g_set.motion, 0, 2)],
+		    "Each section's Zappo element drifts behind the menus: Recent sparks, Favorites crystals, Consoles embers, "
+		    "Music drops, Videos snow, Settings leaves. Fewer: half as many.");
+#endif
 		add(6, MK_CHOICE, "Animations", onoff(g_set.animations), "Smooth scrolling and transitions.");
 		add(9, MK_CHOICE, "Button guide", g_set.show_guide ? "Shown" : "Hidden", "The row of buttons along the bottom of the screen.");
 		break;
@@ -2134,6 +2189,7 @@ static void menu_change(View *mv, int id, int dir) {
 	case M_APPEAR: case M_HOME: case M_GAMES:
 		switch (id) {
 		case 18: g_set.video_wall = !g_set.video_wall; video_reclamp(); break;
+		case 22: g_set.motion = cycle(g_set.motion, 3, dir); dirty = 1; break;
 		case 20: g_set.font_weight = cycle(g_set.font_weight, 3, dir); font_set_weight(g_set.font_weight); dirty = 1; break;
 		case 19: push_menu(M_SYSTEMS, 0); return;
 		case 1: {
@@ -2799,10 +2855,22 @@ static int shelf_screen(void) {
 	return lv && lv->items.n && effective_game_layout() == GL_SHELF && !(lv->kind == LK_SYSTEM && lv->sys >= 0 && g_sys[lv->sys].is_import);
 }
 
+static void ui_render_frame(void);
 void ui_render(void) {
 	decode_budget = 2;
 	pending_loads = 0;
 	gfx_bind(plat_canvas(), SCREEN_W, SCREEN_H);
+	layer_mode = 0;
+	layer_src = NULL;
+#ifdef ZAPPO_KNULLI
+	layer_mode = g_set.motion > 0 && plat_layers_ok() && !sleeping && g_state != UI_LAUNCH && !vprep && !saver && top()->type != V_SHOTS;
+#endif
+	ui_render_frame();
+	gfx_keep_alpha(0);
+	scene_publish();
+}
+
+static void ui_render_frame(void) {
 	if (sleeping) { if (g_set.sleep_clock || lock_peek_until) draw_lock(); else draw_sleep_hint(); dirty = 0; return; }
 	if (g_state == UI_LAUNCH) { draw_loading(); dirty = 0; return; }
 	if (vprep) { draw_video_prep(); dirty = 0; return; }

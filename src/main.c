@@ -100,7 +100,13 @@ int app_frame(int wait) {
 			last_frame = plat_ticks();
 		}
 	} else if (wait) {
-		plat_wait(ui_wait_ms());
+		int ms = ui_wait_ms();
+#ifdef ZAPPO_KNULLI
+		/* the moving background: a new frame of it now and then */
+		int s = plat_scene_frame();
+		if (s > 0 && s < ms) ms = s;
+#endif
+		plat_wait(ms);
 	}
 	return 1;
 }

@@ -17,13 +17,17 @@
 static uint32_t *cv;
 static int cw, ch;
 static int clx0, cly0, clx1, cly1;
+static int keep_alpha;
 
 void gfx_bind(uint32_t *canvas, int w, int h) {
 	cv = canvas;
 	cw = w;
 	ch = h;
+	keep_alpha = 0;
 	gfx_unclip();
 }
+void gfx_keep_alpha(int on) { keep_alpha = on; }
+void gfx_clear_transparent(void) { memset(cv, 0, sizeof(uint32_t) * (size_t)(cw * ch)); }
 void gfx_clip(int x, int y, int w, int h) {
 	clx0 = MAX(0, x);
 	cly0 = MAX(0, y);
@@ -79,7 +83,10 @@ static inline uint32_t blend(uint32_t dst, uint32_t src, uint32_t a) {
 	uint32_t g = ((src & 0x00FF00) * a + (dst & 0x00FF00) * ia + 0x008000);
 	rb = ((rb + ((rb >> 8) & 0xFF00FF)) >> 8) & 0xFF00FF;
 	g = ((g + ((g >> 8) & 0x00FF00)) >> 8) & 0x00FF00;
-	return 0xFF000000u | rb | g;
+	/* (on a see-through canvas the colour above is already premultiplied:
+	 * the cover adds up the same way) */
+	uint32_t da = keep_alpha ? a + (((dst >> 24) * ia + 127) / 255) : 255;
+	return (da << 24) | rb | g;
 }
 
 void gfx_clear(uint32_t c) {

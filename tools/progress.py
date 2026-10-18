@@ -158,7 +158,7 @@ def latest(p):
     if not lt:
         return ""
     data = open(os.path.join(R, lt["image"]), "rb").read()
-    kind = "jpeg" if lt["image"].endswith(".jpg") else "png"
+    kind = "jpeg" if lt["image"].endswith(".jpg") else "gif" if lt["image"].endswith(".gif") else "png"
     return ('<section class="panel"><div class="eyebrow">Latest from the twin</div><figure>'
             '<img src="data:image/%s;base64,%s" alt="%s"><figcaption>%s</figcaption></figure></section>'
             % (kind, base64.b64encode(data).decode(), E(lt["caption"]), E(lt["caption"])))

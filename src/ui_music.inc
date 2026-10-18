@@ -1469,6 +1469,7 @@ static void draw_music(void) {
 /* ------------------------------------------------------------ now playing */
 
 static Image *np_bg;
+static unsigned np_gen = 0x40000000u; /* np_bg made again */
 static char np_key[1024];
 
 static void draw_now_playing(void) {
@@ -1487,6 +1488,7 @@ static void draw_now_playing(void) {
 			Image *src = art ? art : gen_cover_img(artist && artist[0] ? artist : "?", 64);
 			Image *tiny = img_scale(src, 16, 12);
 			np_bg = tiny ? img_scale(tiny, SCREEN_W, SCREEN_H) : NULL;
+			np_gen++;
 			img_free(tiny);
 			if (np_bg)
 				for (int i = 0; i < SCREEN_W * SCREEN_H; i++) {
@@ -1497,7 +1499,8 @@ static void draw_now_playing(void) {
 			sncpy(np_key, m.path, sizeof np_key);
 		}
 	}
-	if (np_bg) memcpy(plat_canvas(), np_bg->px, sizeof(uint32_t) * SCREEN_W * SCREEN_H);
+	if (np_bg && layer_mode) layer_background(np_bg->px, np_gen);	/* behind the moving drops */
+	else if (np_bg) memcpy(plat_canvas(), np_bg->px, sizeof(uint32_t) * SCREEN_W * SCREEN_H);
 	else gfx_vgradient(0, 0, SCREEN_W, SCREEN_H, g_theme.bg, g_theme.bg2);
 	/* the cover */
 	int cs = 252, cx = 34, cy = 82;

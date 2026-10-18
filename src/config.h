@@ -73,6 +73,7 @@ typedef struct {
 	int lights;        /* the stick lights (Knulli): LIGHTS_FOLLOW, LIGHTS_ONE, LIGHTS_KNULLI, LIGHTS_OFF */
 	int lights_colour; /* LIGHTS_ONE: which of the Zappo colours */
 	int lights_effect; /* 0 steady, 1 slow breathing, 2 breathing, 3 fast breathing */
+	int motion;        /* moving backgrounds (Knulli): 2 on, 1 fewer, 0 off */
 } Settings;
 
 extern Settings g_set;

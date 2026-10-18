@@ -103,6 +103,14 @@ void plat_lights_apply(void);  /* after a change in Settings > Lights */
  * is pressed for a while): while music plays or files are arriving */
 void plat_keep_awake(int on);
 int plat_tv(void);              /* a TV is plugged in (HDMI) */
+/* The moving backgrounds: the canvas (see-through, premultiplied) goes over
+ * `bg` (640 x 480, opaque) and the element's particles, put together by the
+ * GPU. bg NULL: the canvas is the whole picture, as before. bg_changed: the
+ * picture is new since last time. element: EL_* (scene.h). */
+int plat_layers_ok(void);       /* this screen can do it */
+void plat_scene(const uint32_t *bg, int bg_changed, int element, int density);
+int plat_scene_frame(void);     /* nothing new to draw: move the particles on; ms until the next frame (0: none) */
+void plat_transition(void);     /* the menu is about to change section: fade from what's on screen now */
 int plat_display_changed(void); /* the TV went in or out since Zappo X started */
 #endif
 void plat_power(int reboot);           /* sync, then power off / reboot */
