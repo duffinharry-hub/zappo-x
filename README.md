@@ -6,7 +6,15 @@ Zappo replaces GarlicOS's menu. GarlicOS, RetroArch and the emulators stay as th
 
 **Download:** the latest `Zappo-x.y.z.zip` under Releases. Unzip, put the GarlicOS card in a Windows PC, run `Zappo.bat`, pick 1. Linux or macOS: `./zappo.sh install` with the card mounted (it does the same job, python3 needed for the player fix and charging animation). `Zappo manual.txt` in the zip (the same as [`package/README.txt`](package/README.txt)) is the full guide.
 
-## What it does
+## Zappo X - for the RG40XX H on Knulli (in progress)
+
+The next Zappo, for the **Anbernic RG40XX H** (H700) and its family running **Knulli**, built from the same code (`ZAPPO_KNULLI`). It takes the place of Knulli's menu and starts games through Knulli's own launcher, so Knulli's emulators and settings stay as they are; Knulli's menu is one tab away, and taking Zappo X off gives the handheld back to it.
+
+New on top of what's below: Wi-Fi and Bluetooth screens, **Send to Zappo** (drop files from a phone or PC onto a page the handheld serves), box art downloads (libretro thumbnails, TheGamesDB), RetroAchievements sign-in, the **stick lights** following the section you're in, TV out over HDMI, and a **moving background** for each section (sparks, crystals, embers, drops, snow, leaves) drawn by the GPU under the menu.
+
+**Kit:** `Zappo X Kit.zip` - unzip, put the Knulli card in a PC, run `Zappo X.bat` (Windows) or `./zappo-x-kit.sh install` (Linux / macOS). The handheld installs it at its next start; `READ ME.txt` in the kit has the details. It has been developed and tested on an emulated RG40XX H ("the twin", `twin/`); checks on the real handheld are still to come.
+
+## What it does (Zappo 0.3.5, original RG35XX)
 
 **Games** - a fixed CPU speed per console while you play (1.0 GHz for Game Boy/NES up to 1.5 GHz for PlayStation/arcade; GarlicOS changes the clock mid-game, which stutters), per-console emulator / scaling / threaded video / audio latency / FPS settings, carry-on-where-you-left-off with "Start over", search across everything, consoles that need a BIOS say which file, GarlicOS favourites, box art and skins carry over.
 
@@ -34,6 +42,9 @@ Zappo replaces GarlicOS's menu. GarlicOS, RetroArch and the emulators stay as th
 | `tests/` | host test harness and unit tests |
 | `third_party/` | cJSON, stb, dr_libs (see THIRD-PARTY.md) |
 | `release/` | `make-release.sh` builds the release zips |
+| `knulli/` | Zappo X on Knulli: start loop, service, installer, Send to Zappo and box-art scripts, the kit's start-up hook |
+| `pc-x/` | the Zappo X kit for the PC (Windows / Linux / macOS); `tools/knulli-kit.sh` builds it |
+| `twin/` | the emulated RG40XX H used for testing (QEMU, Knulli, stand-ins for the gamepad, lights, battery, Wi-Fi, Bluetooth) |
 
 ## Building
 
