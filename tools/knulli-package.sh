@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 P=build/knulli-pkg
 rm -rf $P && mkdir -p $P/zappo-x/font
 cp knulli/install.sh knulli/uninstall.sh knulli/zappox "knulli/Zappo X.sh" $P/
-cp build/zappo-x knulli/zappo-x.sh knulli/mpv-input.conf $P/zappo-x/
+cp build/zappo-x knulli/zappo-x.sh knulli/mpv-input.conf knulli/send-to-zappo.py knulli/get-box-art.py $P/zappo-x/
 cp third_party/fonts/*.ttf third_party/fonts/LICENSES-OFL.txt $P/zappo-x/font/
 for f in package/CFW/clove/*; do
 	case "$(basename "$f")" in clove|main.sh) continue ;; esac

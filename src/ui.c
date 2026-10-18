@@ -6,9 +6,11 @@
 #include "import.h"
 #include "music.h"
 #include "musiclib.h"
+#include "net.h"
 #include "playlists.h"
 #include "util.h"
 #include "video.h"
+#include "../third_party/qrcodegen.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -101,7 +103,7 @@ static int cache_known(const char *path, int w, int h, int mode) {
 
 typedef enum { V_HOME, V_LIST, V_MENU, V_INPUT, V_SEARCH, V_SHOTS } VType;
 enum { LK_SYSTEM, LK_RECENT, LK_FAV, LK_VIDEO };
-enum { M_ROOT, M_APPEAR, M_TABS, M_SYSTEMS, M_SYSTEM, M_PERF, M_CONTROLS, M_POWER, M_ABOUT, M_PICK, M_CLOCK, M_SENS, M_MUSIC, M_HOME, M_GAMES };
+enum { M_ROOT, M_APPEAR, M_TABS, M_SYSTEMS, M_SYSTEM, M_PERF, M_CONTROLS, M_POWER, M_ABOUT, M_PICK, M_CLOCK, M_SENS, M_MUSIC, M_HOME, M_GAMES, M_WIFI, M_BT, M_SEND, M_LIGHTS, M_ACH };
 
 typedef struct {
 	int sel, top;
@@ -130,7 +132,8 @@ static int vis[256], nvis;
 /* overlay menu (options / power / confirm) */
 enum { OV_NONE, OV_GAME, OV_POWER, OV_QUICK, OV_CONFIRM };
 enum { OA_FAV = 1, OA_UNRECENT, OA_SYSSET, OA_CANCEL, OA_SLEEP, OA_OFF, OA_REBOOT, OA_SETTINGS, OA_YES, OA_MOVE,
-       OA_STARTOVER, OA_SEARCH, OA_SHOTS, OA_VWATCH, OA_VHELP, OA_VSORT, OA_SURPRISE, OA_VCONT, OA_NOWPLAY, OA_MPAUSE };
+       OA_STARTOVER, OA_SEARCH, OA_SHOTS, OA_VWATCH, OA_VHELP, OA_VSORT, OA_SURPRISE, OA_VCONT, OA_NOWPLAY, OA_MPAUSE,
+       OA_BT_CONNECT, OA_BT_DISCONNECT, OA_BT_FORGET };
 typedef struct {
 	int kind;
 	char title[240];
@@ -188,7 +191,10 @@ static float batt_rate;
 static void sleep_timer_set(int minutes);
 
 /* keyboard, Search, screenshots, battery (ui_extra.inc) */
-enum { KB_NONE, KB_NEWPL, KB_NEWPL_ADD, KB_SEARCH };
+enum { KB_NONE, KB_NEWPL, KB_NEWPL_ADD, KB_SEARCH, KB_WIFI, KB_RA_USER, KB_RA_PASS };
+static WifiNet wifi_pending; /* the network a password is being typed for */
+static BtDev bt_chosen;      /* the device its options are about */
+static WifiNet wifi_forget;  /* the network "Forget?" asks about */
 static void kb_open(int purpose, const char *title, const char *initial);
 static int kb_button(int b);
 static void draw_kb_modal(void);
@@ -498,9 +504,12 @@ static void push_menu(int menu, int arg) {
 	dirty = 1;
 }
 
+static void send_done(void);
+
 static void pop_view(void) {
 	if (depth <= 1) return;
 	View *v = top();
+	if (v->type == V_MENU && v->menu == M_SEND) send_done();
 	el_clear(&v->items);
 	depth--;
 	dirty = 1;
@@ -1445,12 +1454,69 @@ static int cpu_options(int *out, int max) {
 		if (f[i] >= 600000 && f[i] <= 1488000) out[n++] = f[i];
 	return n;
 }
-static void cpu_label(int sys, int v, char *out, size_t n) {
+static __attribute__((unused)) void cpu_label(int sys, int v, char *out, size_t n) {
 	if (v < 0) snfmt(out, n, "Recommended (%d MHz)", g_sys[sys].cpu_rec / 1000);
 	else if (v == 0) sncpy(out, "GarlicOS automatic", n);
 	else snfmt(out, n, "%d MHz", v / 1000);
 	if (v < 0 && g_sys[sys].cpu_rec == 0) sncpy(out, "Recommended (automatic)", n);
 }
+
+#ifdef ZAPPO_KNULLI
+static const char *LIGHT_MODES[] = {"Follow the section", "One colour", "Knulli's setting", "Off"};
+static int ra_checking;       /* a RetroAchievements sign-in is being checked */
+static int ra_score = -1;     /* points, once signed in this time */
+static char ra_user_typed[64], ra_pass_typed[64];
+
+/* a console's own Knulli setting ("gba.smooth"): -1 when not set */
+static int kopt(int s, const char *opt) {
+	char k[96];
+	snfmt(k, sizeof k, "%s.%s", g_sys[s].dir, opt);
+	return plat_conf_int(k, -1);
+}
+static void kopt_set(int s, const char *opt, int v) {
+	char k[96], val[16];
+	snfmt(k, sizeof k, "%s.%s", g_sys[s].dir, opt);
+	snfmt(val, sizeof val, "%d", v);
+	plat_conf_set(k, v < 0 ? NULL : val);
+}
+static int cycle(int v, int n, int dir);
+static void kopt_cycle(int s, const char *opt, int dir) { kopt_set(s, opt, cycle(kopt(s, opt) + 1, 3, dir) - 1); }
+
+/* Settings > Games > Get box art: how it's going */
+static const char *art_label(char *b, size_t n) {
+	ArtStatus a;
+	net_art_status(&a);
+	if (a.running) {
+		if (a.total) snfmt(b, n, "%d of %d", a.done, a.total);
+		else sncpy(b, "Looking", n);
+	} else if (!strcmp(a.state, "finished")) {
+		if (a.total) snfmt(b, n, "Found %d of %d", a.found, a.total);
+		else sncpy(b, "Nothing missing", n);
+	} else if (!strcmp(a.state, "failed")) sncpy(b, "Didn't work", n);
+	else if (!strcmp(a.state, "stopped")) sncpy(b, "Stopped", n);
+	else b[0] = 0;
+	return b;
+}
+static const char *art_help(void) {
+	static char h[300];
+	ArtStatus a;
+	net_art_status(&a);
+	if (a.running && a.system[0])
+		snfmt(h, sizeof h, "%s%s%s. A stops it; the pictures found so far stay.", a.system, a.game[0] ? ": " : "", a.game);
+	else if (a.running) sncpy(h, "Looking for games without a picture. A stops it.", sizeof h);
+	else if (!strcmp(a.state, "failed") && a.error[0]) sncpy(h, a.error, sizeof h);
+	else sncpy(h, "Finds pictures for games that have none, from the libretro thumbnail library (the one RetroArch uses), over Wi-Fi. "
+	              "Pictures already there are kept. It carries on while you play.", sizeof h);
+	return h;
+}
+static void art_start(const char *folders, const char *what) {
+	WifiStatus ws;
+	net_wifi_status(&ws);
+	if (ws.known && (!ws.enabled || !ws.connected)) { toast("Box art comes over Wi-Fi: join a network in Settings > Wi-Fi first"); return; }
+	if (net_art_start(folders) != 0) { toast("Could not start getting box art"); return; }
+	toast("Getting box art for %s. Carry on, it works in the background", what);
+}
+#endif
 
 static const char *menu_title(int menu, int arg) {
 	static char t[96];
@@ -1470,6 +1536,11 @@ static const char *menu_title(int menu, int arg) {
 	case M_POWER: return "Screen & power";
 	case M_MUSIC: return "Music";
 	case M_ABOUT: return "About Zappo";
+	case M_WIFI: return "Wi-Fi";
+	case M_BT: return "Bluetooth";
+	case M_SEND: return "Send to Zappo";
+	case M_LIGHTS: return "Lights";
+	case M_ACH: return "Achievements";
 	}
 	return "";
 }
@@ -1482,10 +1553,34 @@ static void menu_build(int menu, int arg) {
 		add(M_APPEAR, MK_SUB, "Look", "", "Theme, Glass or Classic style, and how each list is laid out.");
 		add(M_HOME, MK_SUB, "Home screen", "", "Which tabs show, where Zappo opens, the clock and the battery.");
 		add(M_GAMES, MK_SUB, "Games", "", "Box art, tidy names, carrying on where you left off, and each console's settings.");
+#ifdef ZAPPO_KNULLI
+		{
+			char user[64];
+			plat_conf_get("global.retroachievements.username", user, sizeof user);
+			add(M_ACH, MK_SUB, "Achievements", plat_conf_int("global.retroachievements", 0) && user[0] ? user : "Off",
+			    "RetroAchievements: sign in, then unlock achievements as you play.");
+		}
+#endif
 		add(M_MUSIC, MK_SUB, "Music", "", "Volume levelling, picking up where you were, the sleep timer.");
 		add(M_CONTROLS, MK_SUB, "Controls", "", "Confirm button, key repeat and an input tester.");
 		add(M_POWER, MK_SUB, "Screen & power", "", "Brightness, lock screen, battery, reboot and power off.");
 		add(M_PERF, MK_SUB, "Performance", "", "CPU speeds while browsing and while playing.");
+#ifdef ZAPPO_KNULLI
+		if (plat_lights_available())
+			add(M_LIGHTS, MK_SUB, "Lights", LIGHT_MODES[CLAMP(g_set.lights, 0, LIGHTS_COUNT - 1)],
+			    "The lights around the sticks: the colour of the section you're in, one colour, Knulli's own setting, or off.");
+		{
+			WifiStatus ws;
+			net_wifi_status(&ws);
+			add(M_WIFI, MK_SUB, "Wi-Fi", !ws.known ? "" : !ws.enabled ? "Off" : ws.connected ? ws.ssid : "Not connected",
+			    "Networks nearby, passwords, and switching Wi-Fi off to save battery.");
+			BtStatus bs;
+			net_bt_status(&bs);
+			add(M_BT, MK_SUB, "Bluetooth", !bs.known ? "" : bs.enabled ? "On" : "Off",
+			    "Pair controllers and headphones, connect and forget them.");
+			add(M_SEND, MK_SUB, "Send to Zappo", "", "Send games, songs and films from your phone or PC over Wi-Fi.");
+		}
+#endif
 		add(M_ABOUT, MK_SUB, "About Zappo", "", "Version, device information and switching back to the " FW_NAME " menu.");
 		break;
 	case M_APPEAR: {
@@ -1519,13 +1614,68 @@ static void menu_build(int menu, int arg) {
 		break;
 	}
 	case M_GAMES:
+#ifdef ZAPPO_KNULLI
+		add(4, MK_CHOICE, "Box art", onoff(g_set.show_art), "Shows each game's picture from roms/<console>/images, the same ones Knulli's menu uses.");
+		add(21, MK_ACTION, "Get box art", art_label(b, sizeof b), art_help());
+#else
 		add(4, MK_CHOICE, "Box art", onoff(g_set.show_art), "Shows Roms/<console>/Imgs/<game>.png next to games (the PC kit's \"Get box art\" finds them).");
+#endif
 		add(5, MK_CHOICE, "Tidy game names", onoff(g_set.clean_names), "Hides tags like (USA) and [!] and shows full arcade titles.");
 		add(15, MK_CHOICE, "Continue where you left off", onoff(g_set.resume_games),
 		    "Games carry on from the moment you closed them. X on a game: Start over. (Arcade games always start fresh.)");
 		add(13, MK_CHOICE, "Return to last game", onoff(g_set.remember), "After playing, come back to the game you just played.");
 		add(19, MK_SUB, "Consoles", "", "Show, hide, rename and tune each console: emulator, CPU speed, video.");
 		break;
+#ifdef ZAPPO_KNULLI
+	case M_LIGHTS: {
+		static const char *EF[] = {"Steady", "Slow breathing", "Breathing", "Fast breathing"};
+		add(1, MK_CHOICE, "Lights", LIGHT_MODES[CLAMP(g_set.lights, 0, LIGHTS_COUNT - 1)],
+		    g_set.lights == LIGHTS_FOLLOW ? "Each section in its Zappo's colour: Recent electric yellow, Favorites crystal purple, Consoles fire orange, "
+		                                    "Music water blue, Videos ice blue, Settings leaf green."
+		    : g_set.lights == LIGHTS_KNULLI ? "The colour and effect chosen in Knulli's own menu."
+		    : g_set.lights == LIGHTS_ONE ? "The same colour everywhere." : "No lights.");
+		if (g_set.lights == LIGHTS_ONE)
+			add(2, MK_CHOICE, "Colour", plat_light_colours[CLAMP(g_set.lights_colour, 0, LIGHT_COLOURS - 1)].name, NULL);
+		if (g_set.lights == LIGHTS_FOLLOW || g_set.lights == LIGHTS_ONE)
+			add(3, MK_CHOICE, "Effect", EF[CLAMP(g_set.lights_effect, 0, 3)], NULL);
+		if (g_set.lights != LIGHTS_OFF) {
+			snfmt(b, sizeof b, "%d%%", plat_conf_int("led.brightness", 70));
+			add(4, MK_CHOICE, "Brightness", b, "Shared with Knulli's own light setting.");
+			add(5, MK_CHOICE, "Dim with the screen", onoff(plat_conf_int("led.brightness.adaptive", 1)),
+			    "The lights get dimmer and brighter with the screen.");
+		}
+		add(0, MK_INFO, "Low battery (yellow, then red) and charging still show on the lights.", "", NULL);
+		break;
+	}
+	case M_ACH: {
+		char user[64], pass[8];
+		plat_conf_get("global.retroachievements.username", user, sizeof user);
+		int have = user[0] && plat_conf_get("global.retroachievements.password", pass, sizeof pass) && pass[0];
+		int on = plat_conf_int("global.retroachievements", 0);
+		const char *acct = ra_checking ? "Signing in..." : have ? user : "Sign in";
+		add(2, MK_ACTION, "Account", acct,
+		    have ? "A: sign in again, or as someone else." : "Your RetroAchievements account (free at retroachievements.org): type the name, then the password.");
+		add(1, MK_CHOICE, "Achievements", onoff(on && have), "Unlock achievements as you play: RetroArch's emulators, and Knulli's PSP, PlayStation and Dreamcast ones.");
+		if (have) {
+			static const struct { int id; const char *key, *label, *help; } O[] = {
+				{3, "hardcore", "Hardcore mode", "Full points, but no save states, rewind, slow motion or cheats (games start fresh instead of carrying on)."},
+				{4, "leaderboards", "Leaderboards", "Sends your times and scores to the game's leaderboards."},
+				{5, "richpresence", "Show what you're playing", "Your RetroAchievements profile shows the game and what's happening in it."},
+				{6, "screenshot", "Screenshot on unlock", "Takes a screenshot each time you unlock one."},
+				{7, "challenge_indicators", "Challenge indicators", "A small icon while a tricky achievement is in reach."},
+				{8, "encore", "Encore mode", "Unlocks achievements you already have again, as you play."},
+			};
+			for (int i = 0; i < ARRAY_LEN(O); i++) {
+				char k[96];
+				snfmt(k, sizeof k, "global.retroachievements.%s", O[i].key);
+				add(O[i].id, MK_CHOICE, O[i].label, onoff(plat_conf_int(k, 0)), O[i].help);
+			}
+			add(9, MK_ACTION, "Sign out", "", "Forgets the password on this handheld.");
+			if (ra_score >= 0) { snfmt(b, sizeof b, "%s: %d points", user, ra_score); add(0, MK_INFO, b, "", NULL); }
+		}
+		break;
+	}
+#endif
 	case M_TABS:
 		for (int i = 0; i < TAB_COUNT; i++) {
 			if (i == TAB_CONSOLES) continue;
@@ -1556,6 +1706,24 @@ static void menu_build(int menu, int arg) {
 		if (core_opts_sys != s) { data_cores_for_system(s, &core_opts); core_opts_sys = s; }
 		add(5, MK_CHOICE, "Emulator", data_core_label(data_sys_core(s)),
 		    core_opts.n > 1 ? "Other installed cores that can open these games." : "Only one installed core matches these games.");
+#ifdef ZAPPO_KNULLI
+		/* these are Knulli's own per-console settings, so its menu shows the same */
+		if (g_sys[s].dir[0] && strcmp(code, "VIDEOS") && strcmp(code, "PORTS")) {
+			int v = kopt(s, "smooth");
+			add(7, MK_CHOICE, "Screen filter", v < 0 ? "Knulli setting" : v ? "Smooth" : "Sharp pixels",
+			    "Smooth softens the picture when it's made bigger; Sharp pixels keeps every pixel crisp.");
+			v = kopt(s, "integerscale");
+			add(8, MK_CHOICE, "Integer scaling", v < 0 ? "Knulli setting" : onoff(v), "Whole-number scaling: crisp, with borders.");
+			v = kopt(s, "video_threaded");
+			add(9, MK_CHOICE, "Threaded video", v < 0 ? "Knulli setting" : onoff(v), "Moves drawing to another CPU core. Can smooth heavy games; adds a little lag.");
+			v = kopt(s, "audio_latency");
+			if (v > 0) snfmt(b, sizeof b, "%d ms", v); else sncpy(b, "Knulli setting", sizeof b);
+			add(10, MK_CHOICE, "Audio latency", b, "Higher values stop crackling on demanding games.");
+			v = kopt(s, "showFPS");
+			add(11, MK_CHOICE, "Show FPS", v < 0 ? "Knulli setting" : onoff(v), NULL);
+			add(13, MK_ACTION, "Get box art", "", "Pictures for this console's games that have none, from the libretro thumbnail library, over Wi-Fi.");
+		}
+#else
 		cpu_label(s, sys_get_int(code, "cpu", -1), b, sizeof b);
 		add(6, MK_CHOICE, "CPU speed", b, "A fixed speed keeps frame pacing steady. GarlicOS automatic lets the CPU speed up and slow down.");
 		add(7, MK_CHOICE, "Screen filter", sys_get_int(code, "filter", 0) ? "Sharp pixels" : "RetroArch setting", "Sharp pixels uses the cheapest scaler.");
@@ -1567,6 +1735,7 @@ static void menu_build(int menu, int arg) {
 		if (v > 0) snfmt(b, sizeof b, "%d ms", v); else sncpy(b, "RetroArch setting", sizeof b);
 		add(10, MK_CHOICE, "Audio latency", b, "Higher values stop crackling on demanding games.");
 		add(11, MK_CHOICE, "Show FPS", onoff(sys_get_int(code, "fps", 0)), NULL);
+#endif
 		add(12, MK_ACTION, "Reset this console", "", NULL);
 		{
 			char files[256], line[300];
@@ -1575,8 +1744,12 @@ static void menu_build(int menu, int arg) {
 			else if (st == BIOS_OPTIONAL_MISSING) snfmt(line, sizeof line, "Optional BIOS file: %s", files);
 			else sncpy(line, "BIOS: nothing missing", sizeof line);
 			add(0, MK_INFO, line, "", NULL);
+#ifdef ZAPPO_KNULLI
+			if (g_sys[s].dir[0]) { snfmt(line, sizeof line, "Games folder: roms/%s", g_sys[s].dir); add(0, MK_INFO, line, "", NULL); }
+#else
 			snfmt(line, sizeof line, "Games folder: Roms/%s", code);
 			add(0, MK_INFO, line, "", NULL);
+#endif
 		}
 		break;
 	}
@@ -1637,6 +1810,16 @@ static void menu_build(int menu, int arg) {
 	case M_POWER:
 		snfmt(b, sizeof b, "%d", plat_brightness_get());
 		add(1, MK_CHOICE, "Brightness", b, "Volume buttons also change brightness in Zappo (or the music volume while a song plays).");
+#ifdef ZAPPO_KNULLI
+		{
+			char v[32];
+			plat_conf_get("global.videooutput", v, sizeof v);
+			snfmt(b, sizeof b, "%s%s", !strcmp(v, "hdmi-720p") ? "720p" : !strcmp(v, "hdmi-480p") ? "480p" : "1080p", plat_tv() ? " (showing now)" : "");
+			add(20, MK_CHOICE, "TV picture (HDMI)", b,
+			    "With a TV plugged into the HDMI port, everything shows on the TV. 480p keeps Zappo and older games sharpest; "
+			    "1080p suits TVs that blur smaller pictures.");
+		}
+#endif
 		add(2, MK_ACTION, "Lock now", "", "Shows the lock screen. Press L1 and R1 together to unlock.");
 		if (g_set.saver_min) snfmt(b, sizeof b, "After %d min", g_set.saver_min); else sncpy(b, "Off", sizeof b);
 		add(5, MK_CHOICE, "Screensaver", b, "Shows the Zappo wallpaper with a big clock when the handheld is left alone. Music keeps playing.");
@@ -1696,6 +1879,61 @@ static void menu_build(int menu, int arg) {
 		snfmt(b, sizeof b, "%d%%", g_set.music_volume);
 		add(4, MK_CHOICE, "Volume", b, "The volume buttons change this too while music plays.");
 		add(0, MK_INFO, "Playlists live in Music/Playlists as .m3u files.", "", NULL);
+		break;
+	}
+	case M_WIFI: {
+		WifiStatus ws;
+		net_wifi_status(&ws);
+		add(1, MK_CHOICE, "Wi-Fi", ws.enabled ? "On" : "Off", "Off saves battery. Bluetooth keeps working either way.");
+		/* one line for how things stand (the list below doesn't jump about) */
+		if (net_busy()) snfmt(b, sizeof b, "%s...", net_job());
+		else if (net_last_error()[0]) sncpy(b, net_last_error(), sizeof b);
+		else if (!ws.enabled) sncpy(b, "Wi-Fi is off", sizeof b);
+		else if (ws.connected) snfmt(b, sizeof b, "Connected to %s  -  %s", ws.ssid, ws.ip[0] ? ws.ip : "no address yet");
+		else sncpy(b, ws.known ? "Not connected" : "Checking...", sizeof b);
+		add(0, MK_INFO, b, "", NULL);
+		if (!ws.enabled) break;
+		WifiNet nets[16];
+		int k = net_wifi_list(nets, 16), saved = 0;
+		for (int i = 0; i < k; i++) {
+			char v[64];
+			const char *what = nets[i].connected ? "Connected" : nets[i].saved ? "Saved" : nets[i].secured ? "Password" : "Open";
+			snfmt(v, sizeof v, "%s|%d", what, CLAMP((nets[i].strength + 24) / 25, 1, 4));
+			add(100 + i, MK_ACTION, nets[i].ssid, v, nets[i].connected ? "The handheld is on this network. A: forget it." :
+			    nets[i].saved ? "A: connect (the handheld has its password)." : nets[i].secured ? "A: type its password and connect." : "A: connect (no password).");
+		}
+		(void)saved;
+		add(2, MK_ACTION, "Look again", "", "Searches for the networks nearby.");
+		break;
+	}
+	case M_BT: {
+		BtStatus bs;
+		net_bt_status(&bs);
+		add(1, MK_CHOICE, "Bluetooth", bs.enabled ? "On" : "Off", "Knulli's Bluetooth. Off saves a little battery.");
+		BtDev d[16];
+		int k = net_bt_list(d, 16), npaired = 0, nconn = 0;
+		for (int i = 0; i < k; i++) { npaired += d[i].paired; nconn += d[i].paired && d[i].connected; }
+		if (net_busy()) snfmt(b, sizeof b, "%s...", net_job());
+		else if (net_last_error()[0]) sncpy(b, net_last_error(), sizeof b);
+		else if (!bs.enabled) sncpy(b, "Bluetooth is off", sizeof b);
+		else if (!bs.known) sncpy(b, "Checking...", sizeof b);
+		else if (!npaired) sncpy(b, "Nothing paired yet", sizeof b);
+		else snfmt(b, sizeof b, "%d paired, %d connected", npaired, nconn);
+		add(0, MK_INFO, b, "", NULL);
+		if (!bs.enabled) break;
+		for (int i = 0; i < k; i++) {
+			if (!d[i].paired) continue;
+			char v[64];
+			snfmt(v, sizeof v, "%s%s%s", d[i].kind, d[i].kind[0] ? "  -  " : "", d[i].connected ? "Connected" : "Paired");
+			add(200 + i, MK_ACTION, d[i].name, v, "A: connect, disconnect or forget it.");
+		}
+		add(2, MK_ACTION, "Look for new devices", "", "Put the controller or headphones in pairing mode first, then look.");
+		for (int i = 0; i < k; i++) {
+			if (d[i].paired) continue;
+			char v[64];
+			snfmt(v, sizeof v, "%s%sPair", d[i].kind, d[i].kind[0] ? "  -  " : "");
+			add(200 + i, MK_ACTION, d[i].name, v, "A: pair it with the handheld.");
+		}
 		break;
 	}
 	case M_ABOUT: {
@@ -1790,7 +2028,109 @@ static void menu_change(View *mv, int id, int dir) {
 	switch (menu) {
 	case M_ROOT:
 		push_menu(id, 0);
+		if (id == M_WIFI) net_wifi_refresh(1);
+		if (id == M_BT) net_bt_refresh(0);
+		if (id == M_SEND) { net_wifi_refresh(0); net_send_start(); }
 		return;
+	case M_BT: {
+		BtStatus bs;
+		net_bt_status(&bs);
+		if (net_busy()) { toast("One moment: %s", net_job()); return; }
+		if (id == 1) { net_bt_power(!bs.enabled); dirty = 1; return; }
+		if (!activate) return;
+		if (id == 2) { net_bt_refresh(1); dirty = 1; return; }
+		if (id >= 200) {
+			BtDev d[16];
+			int k = net_bt_list(d, 16), i = id - 200;
+			if (i >= k) return;
+			bt_chosen = d[i];
+			if (!d[i].paired) { net_bt_pair(&d[i]); dirty = 1; return; }
+			open_overlay(OV_CONFIRM, d[i].name);
+			ov_add(d[i].connected ? "Disconnect" : "Connect", d[i].connected ? OA_BT_DISCONNECT : OA_BT_CONNECT);
+			ov_add("Forget it", OA_BT_FORGET);
+			ov_add("Cancel", OA_CANCEL);
+		}
+		return;
+	}
+	case M_WIFI: {
+		WifiStatus ws;
+		net_wifi_status(&ws);
+		if (net_busy() && id != 0) { toast("One moment: %s", net_job()); return; }
+		if (id == 1) { net_wifi_power(!ws.enabled); dirty = 1; return; }
+		if (!activate) return;
+		if (id == 2) { net_wifi_refresh(1); dirty = 1; return; }
+		if (id >= 100) {
+			WifiNet nets[16];
+			int k = net_wifi_list(nets, 16), i = id - 100;
+			if (i >= k) return;
+			if (nets[i].connected) {
+				char q[120];
+				wifi_forget = nets[i];
+				snfmt(q, sizeof q, "Forget %s? The handheld leaves it and won't join it again by itself.", nets[i].ssid);
+				open_overlay(OV_CONFIRM, q);
+				ov.confirm_action = 1005;
+				ov_add("Cancel", OA_CANCEL);
+				ov_add("Forget it", OA_YES);
+			} else if (nets[i].saved || !nets[i].secured) {
+				net_wifi_connect(&nets[i], "");
+			} else {
+				char t[96];
+				wifi_pending = nets[i];
+				snfmt(t, sizeof t, "Password for %s", nets[i].ssid);
+				kb_open(KB_WIFI, t, "");
+			}
+			dirty = 1;
+		}
+		return;
+	}
+#ifdef ZAPPO_KNULLI
+	case M_LIGHTS:
+		switch (id) {
+		case 1: g_set.lights = cycle(g_set.lights, LIGHTS_COUNT, dir); break;
+		case 2: g_set.lights_colour = cycle(g_set.lights_colour, LIGHT_COLOURS, dir); break;
+		case 3: g_set.lights_effect = cycle(g_set.lights_effect, 4, dir); break;
+		case 4: {
+			char v[8];
+			snfmt(v, sizeof v, "%d", CLAMP((plat_conf_int("led.brightness", 70) / 10 + dir) * 10, 10, 100));
+			plat_conf_set("led.brightness", v);
+			break;
+		}
+		case 5: plat_conf_set("led.brightness.adaptive", plat_conf_int("led.brightness.adaptive", 1) ? "0" : "1"); break;
+		default: return;
+		}
+		plat_lights_apply();
+		mark_settings();
+		dirty = 1;
+		return;
+	case M_ACH: {
+		char user[64], pass[8];
+		plat_conf_get("global.retroachievements.username", user, sizeof user);
+		int have = user[0] && plat_conf_get("global.retroachievements.password", pass, sizeof pass) && pass[0];
+		if (id == 2 || (id == 1 && !have)) {
+			if (!activate && id == 2) return;
+			if (net_busy()) { toast("One moment: %s", net_job()); return; }
+			kb_open(KB_RA_USER, "RetroAchievements name", user);
+			return;
+		}
+		if (id == 1) {
+			plat_conf_set("global.retroachievements", plat_conf_int("global.retroachievements", 0) ? "0" : "1");
+		} else if (id >= 3 && id <= 8) {
+			static const char *K[] = {"hardcore", "leaderboards", "richpresence", "screenshot", "challenge_indicators", "encore"};
+			char k[96];
+			snfmt(k, sizeof k, "global.retroachievements.%s", K[id - 3]);
+			plat_conf_set(k, plat_conf_int(k, 0) ? "0" : "1");
+		} else if (id == 9) {
+			if (!activate) return;
+			plat_conf_set("global.retroachievements.password", NULL);
+			plat_conf_set("global.retroachievements.token", NULL);
+			plat_conf_set("global.retroachievements", "0");
+			ra_score = -1;
+			toast("Signed out of RetroAchievements");
+		}
+		dirty = 1;
+		return;
+	}
+#endif
 	case M_APPEAR: case M_HOME: case M_GAMES:
 		switch (id) {
 		case 18: g_set.video_wall = !g_set.video_wall; video_reclamp(); break;
@@ -1825,6 +2165,17 @@ static void menu_change(View *mv, int id, int dir) {
 		case 16: g_set.style = g_set.style == STYLE_GLASS ? STYLE_CLASSIC : STYLE_GLASS; apply_theme(); break;
 		case 17: g_set.music_layout = cycle(g_set.music_layout, MLAY_COUNT, dir); music_relayout(); break;
 		case 14: push_menu(M_CLOCK, 0); return;
+#ifdef ZAPPO_KNULLI
+		case 21: {
+			if (!activate) return;
+			ArtStatus a;
+			net_art_status(&a);
+			if (a.running) { net_art_stop(); toast("Stopped. The %d pictures found so far stay", a.found); }
+			else art_start("", "every console");
+			dirty = 1;
+			return;
+		}
+#endif
 		}
 		mark_settings();
 		return;
@@ -1916,6 +2267,24 @@ static void menu_change(View *mv, int id, int dir) {
 			else sys_set_int(code, "cpu", nx);
 			break;
 		}
+#ifdef ZAPPO_KNULLI
+		case 7: kopt_cycle(arg, "smooth", dir); break;
+		case 8: kopt_cycle(arg, "integerscale", dir); break;
+		case 9: kopt_cycle(arg, "video_threaded", dir); break;
+		case 10: {
+			static const int L[] = {-1, 64, 96, 128};
+			int v = kopt(arg, "audio_latency"), cur = 0;
+			for (int i = 0; i < 4; i++) if (L[i] == v) cur = i;
+			kopt_set(arg, "audio_latency", L[cycle(cur, 4, dir)]);
+			break;
+		}
+		case 11: kopt_cycle(arg, "showFPS", dir); break;
+		case 13:
+			if (!activate) return;
+			art_start(g_sys[arg].dir, data_sys_name(arg));
+			dirty = 1;
+			return;
+#else
 		case 7: sys_set_int(code, "filter", !sys_get_int(code, "filter", 0)); break;
 		case 8: sys_set_int(code, "integer", cycle(sys_get_int(code, "integer", -1) + 1, 3, dir) - 1); break;
 		case 9: sys_set_int(code, "threaded", cycle(sys_get_int(code, "threaded", -1) + 1, 3, dir) - 1); break;
@@ -1927,8 +2296,15 @@ static void menu_change(View *mv, int id, int dir) {
 			break;
 		}
 		case 11: sys_set_int(code, "fps", !sys_get_int(code, "fps", 0)); break;
+#endif
 		case 12:
 			if (!activate) return;
+#ifdef ZAPPO_KNULLI
+			if (g_sys[arg].dir[0]) {
+				static const char *K[] = {"smooth", "integerscale", "video_threaded", "audio_latency", "showFPS"};
+				for (int i = 0; i < ARRAY_LEN(K); i++) kopt_set(arg, K[i], -1);
+			}
+#endif
 			sys_reset(code);
 			core_opts_sys = -1;
 			rescan();
@@ -1991,6 +2367,19 @@ static void menu_change(View *mv, int id, int dir) {
 			return;
 		}
 		if (id == 7 && activate) { saver_start(); return; }
+#ifdef ZAPPO_KNULLI
+		if (id == 20) {
+			static const char *TV[] = {"hdmi-1080p", "hdmi-720p", "hdmi-480p"};
+			char v[32];
+			plat_conf_get("global.videooutput", v, sizeof v);
+			int cur = 0;
+			for (int i = 0; i < 3; i++) if (!strcmp(v, TV[i])) cur = i;
+			plat_conf_set("global.videooutput", TV[cycle(cur, 3, dir)]);
+			if (plat_tv()) g_state = UI_RESTART; /* (shown again at the new size) */
+			dirty = 1;
+			return;
+		}
+#endif
 		if (id == 8) { g_set.sleep_clock = !g_set.sleep_clock; mark_settings(); dirty = 1; return; }
 		if (id == 10) { g_set.battery_time ^= 1; mark_settings(); return; }
 		if (id == 11) {
@@ -2084,8 +2473,61 @@ static void menu_change(View *mv, int id, int dir) {
 	}
 }
 
+/* Send to Zappo: the address (and its QR code) for a phone or PC on the same
+ * Wi-Fi, and what has arrived; leaving sorts it all (Import) */
+static void draw_send(void) {
+	WifiStatus ws;
+	net_wifi_status(&ws);
+	int x = PAD, y = CONTENT_Y + 10, w = SCREEN_W - PAD * 2;
+	if (!ws.connected || !ws.ip[0]) {
+		text_draw_wrap(F_BODY, x + 8, y + 40, w - 16, 3, ws.known ? "Connect the handheld to Wi-Fi first (Settings > Wi-Fi), then come back here." :
+		               "Checking the Wi-Fi...", g_theme.text, 1);
+		return;
+	}
+	char url[80];
+	snfmt(url, sizeof url, "http://%s:8640", ws.ip);
+	static uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(10)], tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(10)];
+	int qs = 0;
+	if (qrcodegen_encodeText(url, tmp, qr, qrcodegen_Ecc_MEDIUM, 1, 10, qrcodegen_Mask_AUTO, true)) {
+		int n = qrcodegen_getSize(qr), m = 210 / (n + 6);
+		qs = m * (n + 6);
+		gfx_rrect(x, y, qs, qs, 12, 0xFFFFFFFF);
+		for (int j = 0; j < n; j++)
+			for (int i = 0; i < n; i++)
+				if (qrcodegen_getModule(qr, i, j)) gfx_rect(x + (i + 3) * m, y + (j + 3) * m, m, m, 0xFF101010);
+	}
+	int rx = x + qs + 24, rw = w - qs - 24;
+	text_draw_wrap(F_SMALL, rx, y + 4, rw, 2, "On a phone or PC on the same Wi-Fi, scan the code or open:", g_theme.text_dim, 0);
+	text_draw_fit(F_TITLE, rx, y + 52, rw, url, g_theme.accent, 0);
+	text_draw_wrap(F_SMALL, rx, y + 104, rw, 3, net_send_running() ? "Games, songs, albums and films go to Import. Zappo sorts them when you leave this screen." :
+	               "The page didn't start (send-to-zappo.py).", g_theme.text_dim, 0);
+	char names[6][96];
+	int k = net_send_received(names, 6);
+	int ly = y + MAX(qs, 170) + 18;
+	gfx_rect(x, ly - 8, w, 1, col_alpha(g_theme.text_dim, 50));
+	if (!k) text_draw(F_SMALL, x + 4, ly, "Nothing received yet", g_theme.text_dim);
+	for (int i = 0; i < k; i++) {
+		int ry = ly + i * (font_height(F_SMALL) + 4);
+		gfx_rrect(x + 4, ry + font_height(F_SMALL) / 2 - 4, 8, 8, 4, g_theme.accent); /* arrived */
+		text_draw_fit(F_SMALL, x + 20, ry, w - 24, names[i], g_theme.text, 0);
+	}
+}
+
+static void send_done(void) {
+	net_send_stop();
+	ImportResult r;
+	import_run(&r);
+	rescan();
+	core_opts_sys = -1;
+	if (r.music) music_lib_invalidate();
+	char msg[200];
+	import_summary(&r, 1, msg, sizeof msg);
+	if (msg[0]) toast("%s", msg);
+}
+
 static void draw_menu(View *mv, int with_title) {
 	(void)with_title;
+	if (mv->menu == M_SEND) { draw_send(); return; }
 	menu_build(mv->menu, mv->arg);
 	if (nmi == 0) return;
 	mv->cur.sel = CLAMP(mv->cur.sel, 0, nmi - 1);
@@ -2123,6 +2565,20 @@ static void draw_menu(View *mv, int with_title) {
 			int tw = MIN(text_width(F_BODY, b), w / 2);
 			text_draw_fit(F_BODY, x + w - 14 - tw, ty, tw, b, vc, 2);
 			vw = tw + 20;
+		} else if (m->kind == MK_ACTION && m->value[0]) {
+			/* a note beside an action; "text|N" also draws N of 4 signal bars (Wi-Fi) */
+			char note[96];
+			sncpy(note, m->value, sizeof note);
+			char *bar = strchr(note, '|');
+			int bars = -1, bw = 0;
+			if (bar) { *bar = 0; bars = CLAMP(atoi(bar + 1), 0, 4); bw = 4 * 6 + 10; }
+			int tw = MIN(text_width(F_SMALL, note), w / 2);
+			text_draw_fit(F_SMALL, x + w - 14 - bw - tw, y + rh / 2 - font_height(F_SMALL) / 2, tw, note, vc, 2);
+			for (int k = 0; k < 4 && bars >= 0; k++) {
+				int bh = 5 + k * 4, bx = x + w - 14 - bw + 10 + k * 6, by = y + rh / 2 + 9 - bh;
+				gfx_rect(bx, by, 4, bh, k < bars ? vc : col_alpha(vc, 70));
+			}
+			vw = tw + bw + 20;
 		}
 		if (m->kind == MK_INFO) text_draw_fit(F_SMALL, x + 14, y + rh / 2 - font_height(F_SMALL) / 2, w - 28, m->label, tc, 0);
 		else text_draw_fit(F_BODY, x + 14, ty, w - 28 - vw, m->label, tc, 0);
@@ -2434,8 +2890,12 @@ void ui_render(void) {
 	} else if (v->type == V_MENU) {
 		draw_topbar(menu_title(v->menu, v->arg));
 		draw_menu(v, 1);
-		h[nh++] = (Hint){back_btn(), "Back"};
-		h[nh++] = (Hint){confirm_btn(), "Select"};
+		if (v->menu == M_SEND) {
+			h[nh++] = (Hint){back_btn(), "Done"};
+		} else {
+			h[nh++] = (Hint){back_btn(), "Back"};
+			h[nh++] = (Hint){confirm_btn(), "Select"};
+		}
 	} else if (v->type == V_INPUT) {
 		draw_topbar("Input test");
 		draw_input_test();
@@ -2698,17 +3158,28 @@ static void overlay_button(int b) {
 		ui_save_music();
 		plat_power(act == OA_REBOOT);
 		break;
+	case OA_BT_CONNECT: net_bt_connect(&bt_chosen, 1); break;
+	case OA_BT_DISCONNECT: net_bt_connect(&bt_chosen, 0); break;
+	case OA_BT_FORGET: net_bt_forget(&bt_chosen); break;
 	case OA_YES:
 		if (kind != OV_CONFIRM) break;
 		if (ov.confirm_action == OA_OFF || ov.confirm_action == OA_REBOOT) { save_now(); ui_save_music(); plat_power(ov.confirm_action == OA_REBOOT); }
 		if (ov.confirm_action == 1001) {
-			for (int i = 0; i < g_nsys; i++) sys_reset(g_sys[i].code);
+			for (int i = 0; i < g_nsys; i++) {
+#ifdef ZAPPO_KNULLI
+				static const char *K[] = {"smooth", "integerscale", "video_threaded", "audio_latency", "showFPS"};
+				if (g_sys[i].dir[0])
+					for (int k = 0; k < ARRAY_LEN(K); k++) if (kopt(i, K[k]) >= 0) kopt_set(i, K[k], -1);
+#endif
+				sys_reset(g_sys[i].code);
+			}
 			core_opts_sys = -1;
 			rescan();
 			mark_settings();
 			toast("All systems reset");
 		}
 		if (ov.confirm_action == 1004) music_delete_playlist(ov.sys);
+		if (ov.confirm_action == 1005) net_wifi_forget(&wifi_forget);
 		if (ov.confirm_action == 1003 && pend_sys >= 0) {
 			Entry e = {pend_name, pend_path, pend_sys, 0, 0};
 			launch_now(&e, pend_kind);
@@ -2931,6 +3402,31 @@ static void anim_cursor(Cursor *c, float k) {
 }
 
 int ui_update(void) {
+	if (net_poll()) dirty = 1; /* a Wi-Fi job finished (Settings > Wi-Fi), box art arrived */
+	{
+		char m[200];
+		if (net_art_finished(m, sizeof m)) toast("%s", m);
+	}
+#ifdef ZAPPO_KNULLI
+	if (plat_display_changed() && g_state == UI_RUN) { g_state = UI_RESTART; return 1; }
+	plat_keep_awake(music_is_playing() || net_send_running());
+	{
+		RaResult rr;
+		if (net_ra_take(&rr)) {
+			ra_checking = 0;
+			if (rr.ok) {
+				plat_conf_set("global.retroachievements.username", rr.user[0] ? rr.user : ra_user_typed);
+				plat_conf_set("global.retroachievements.password", ra_pass_typed);
+				if (rr.token[0]) plat_conf_set("global.retroachievements.token", rr.token);
+				plat_conf_set("global.retroachievements", "1");
+				ra_score = rr.score;
+				toast("Signed in as %s: %d points", rr.user[0] ? rr.user : ra_user_typed, rr.score);
+			} else toast("%s", net_last_error());
+			memset(ra_pass_typed, 0, sizeof ra_pass_typed);
+			dirty = 1;
+		}
+	}
+#endif
 	uint64_t now = plat_ticks();
 	float dt = last_tick ? (float)(now - last_tick) / 1000.0f : 0.016f;
 	if (dt > 0.1f) dt = 0.1f;
@@ -3032,6 +3528,8 @@ int ui_dirty(void) { return dirty; }
 int ui_state(void) { return g_state; }
 int ui_wait_ms(void) {
 	if (animating || dirty) return 0;
+	if (net_busy()) return 250;
+	if (net_send_running()) return 500; /* files arriving (Send to Zappo) */
 	for (int b = 0; b < B_COUNT; b++) if (held[b]) return 16;
 	if (settings_dirty) return 500;
 	return 1000;

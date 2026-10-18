@@ -305,14 +305,46 @@ int data_is_junk(const char *name) {
 static char **arc_keys, **arc_vals;
 static int arc_n, arc_loaded;
 static int arc_cmp(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
-static void arcade_load(void) {
-	if (arc_loaded) return;
-	arc_loaded = 1;
-	char p[512];
-	snfmt(p, sizeof p, "%s/config/mame.csv", g_paths.cfw);
-	char *txt = file_read_all(p, NULL);
-	if (!txt) return;
-	int cap = 0;
+#ifdef ZAPPO_KNULLI
+/* Knulli's list, as its own menu uses: <rom id="sf2" name="Street Fighter II ..." /> */
+static char **arcade_load_knulli(char *txt, int *count) {
+	char **pairs = NULL;
+	int cap = 0, n = 0;
+	for (char *p = strstr(txt, "<rom id=\""); p; p = strstr(p, "<rom id=\"")) {
+		char *id = p + 9, *q = strchr(id, '"');
+		if (!q) break;
+		char *end = strchr(q, '>');
+		if (!end) break;
+		*end = 0;	/* (the tag ends here: name= is looked for inside it only) */
+		char *nm = strstr(q, " name=\"");
+		p = end + 1;
+		if (!nm) continue;
+		nm += 7;
+		char *nq = strchr(nm, '"');
+		if (!nq) continue;
+		*q = 0;
+		*nq = 0;
+		/* the entities in the names: &amp; &apos; &quot; &lt; &gt; */
+		static const struct { const char *e; char c; } ENT[] = {{"&amp;", '&'}, {"&apos;", '\''}, {"&quot;", '"'}, {"&lt;", '<'}, {"&gt;", '>'}};
+		for (char *a = strchr(nm, '&'); a; a = strchr(a + 1, '&'))
+			for (int i = 0; i < ARRAY_LEN(ENT); i++) {
+				size_t l = strlen(ENT[i].e);
+				if (!strncmp(a, ENT[i].e, l)) { *a = ENT[i].c; memmove(a + 1, a + l, strlen(a + l) + 1); break; }
+			}
+		if (n == cap) { cap = cap ? cap * 2 : 8192; pairs = xrealloc(pairs, sizeof(char *) * 2 * (size_t)cap); }
+		pairs[n * 2] = id;
+		pairs[n * 2 + 1] = nm;
+		n++;
+	}
+	*count = n;
+	return pairs;
+}
+#endif
+
+/* GarlicOS's CFW/config/mame.csv: "zip,Title" lines */
+#ifndef ZAPPO_KNULLI
+static char **arcade_load_csv(char *txt, int *count) {
+	int cap = 0, n = 0;
 	char *line = txt;
 	char **pairs = NULL;
 	while (line && *line) {
@@ -324,13 +356,32 @@ static void arcade_load(void) {
 			char *v = comma + 1;
 			size_t vl = strlen(v);
 			if (vl && v[vl - 1] == '\r') v[vl - 1] = 0;
-			if (arc_n == cap) { cap = cap ? cap * 2 : 4096; pairs = xrealloc(pairs, sizeof(char *) * 2 * (size_t)cap); }
-			pairs[arc_n * 2] = line;
-			pairs[arc_n * 2 + 1] = v;
-			arc_n++;
+			if (n == cap) { cap = cap ? cap * 2 : 4096; pairs = xrealloc(pairs, sizeof(char *) * 2 * (size_t)cap); }
+			pairs[n * 2] = line;
+			pairs[n * 2 + 1] = v;
+			n++;
 		}
 		line = nl ? nl + 1 : NULL;
 	}
+	*count = n;
+	return pairs;
+}
+#endif
+
+static void arcade_load(void) {
+	if (arc_loaded) return;
+	arc_loaded = 1;
+#ifdef ZAPPO_KNULLI
+	char *txt = file_read_all("/usr/share/emulationstation/resources/arcaderoms.xml", NULL);
+	if (!txt) return;
+	char **pairs = arcade_load_knulli(txt, &arc_n);
+#else
+	char p[512];
+	snfmt(p, sizeof p, "%s/config/mame.csv", g_paths.cfw);
+	char *txt = file_read_all(p, NULL);
+	if (!txt) return;
+	char **pairs = arcade_load_csv(txt, &arc_n);
+#endif
 	/* sort pairs by key */
 	if ((arc_n) > 1) qsort(pairs, (size_t)arc_n, sizeof(char *) * 2, arc_cmp);
 	arc_keys = xmalloc(sizeof(char *) * (size_t)(arc_n + 1));
@@ -1386,6 +1437,7 @@ int data_launch_retroarch(void) {
 	 * (not through its restart loop), so leaving it - Quit > Restart
 	 * EmulationStation - comes back to Zappo X. */
 	return write_command("#!/bin/sh\n# Written by Zappo X\n"
+	                     "knulli-rgb-led-daemon import >/dev/null 2>&1\n"	/* the stick lights: Knulli's own colours */
 	                     "cd /userdata && HOME=/userdata/system SDL_NOMOUSE=1 emulationstation --no-startup-game\n");
 #endif
 	char cpu[256], body[1024];

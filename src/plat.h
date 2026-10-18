@@ -87,6 +87,23 @@ int plat_pads(PadInfo *out, int max); /* the handheld's own controls first */
 
 #ifdef ZAPPO_KNULLI
 int plat_mpv_remote(const char *sock_path); /* the buttons for Knulli's mpv (films) */
+/* Knulli's own settings (batocera.conf), so a choice made in Zappo X is the
+ * one Knulli's menu and its emulators see too */
+int plat_conf_get(const char *key, char *out, size_t n);  /* 1 = set ("" otherwise) */
+int plat_conf_int(const char *key, int fallback);
+void plat_conf_set(const char *key, const char *value);    /* NULL: back to Knulli's default */
+/* the stick lights (Settings > Lights), through Knulli's light daemon */
+enum { LIGHTS_FOLLOW, LIGHTS_ONE, LIGHTS_KNULLI, LIGHTS_OFF, LIGHTS_COUNT };
+#define LIGHT_COLOURS 9
+typedef struct { const char *name; uint32_t rgb; } LightColour;
+extern const LightColour plat_light_colours[LIGHT_COLOURS];
+int plat_lights_available(void);
+void plat_lights_apply(void);  /* after a change in Settings > Lights */
+/* holds off Knulli's battery saver (dimming, muting, sleeping when no button
+ * is pressed for a while): while music plays or files are arriving */
+void plat_keep_awake(int on);
+int plat_tv(void);              /* a TV is plugged in (HDMI) */
+int plat_display_changed(void); /* the TV went in or out since Zappo X started */
 #endif
 void plat_power(int reboot);           /* sync, then power off / reboot */
 

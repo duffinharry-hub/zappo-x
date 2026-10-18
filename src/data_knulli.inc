@@ -251,6 +251,10 @@ static int knulli_play_video(const Entry *e, char *err, size_t errn) {
 	      "D=%s\n"
 	      "S=/tmp/zappo-x-mpv.sock\n"
 	      "rm -f $S\n"
+	      /* Knulli's battery saver dims and mutes after a few minutes without a
+	       * button press: not while a film plays (as Knulli does for its own) */
+	      "P=/var/run/battery-saver/zappo-x-film.pause\n"
+	      "mkdir -p /var/run/battery-saver && touch $P\n"
 	      "$D/zappo-x --mpv-remote $S &\n"	/* the buttons (see plat_mpv_remote) */
 	      "mpv --vo=sdl --fs --really-quiet --input-ipc-server=$S --input-default-bindings=no "
 	      "--input-conf=$D/mpv-input.conf --save-position-on-quit --watch-later-dir=$D/watch-later "
@@ -262,7 +266,7 @@ static int knulli_play_video(const Entry *e, char *err, size_t errn) {
 		shell_squote(data_next_video[k], q, sizeof q);
 		len += snfmt(body + len, sizeof body - (size_t)len, " '%s'", q);
 	}
-	snfmt(body + len, sizeof body - (size_t)len, "\n");
+	snfmt(body + len, sizeof body - (size_t)len, "\nrm -f $P\n");
 	data_next_video[0][0] = data_next_video[1][0] = 0;
 	if (write_command(body) != 0) { snfmt(err, errn, "Could not write the start command"); return -1; }
 	recents_add(e->path);

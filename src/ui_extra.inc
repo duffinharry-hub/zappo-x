@@ -8,6 +8,8 @@
  * B deletes (or closes the keyboard when there's nothing typed). */
 
 static const char *const KB_KEYS[4] = {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm-&."};
+/* passwords: Shift goes on to every other symbol on a keyboard */
+static const char *const KB_SYMS[4] = {"!@#$%^&*()", "`~-_=+[]{}", "\\|;:'\",.<>", "/?@#&!-_.*"};
 #define KB_COLS 10
 #define KB_NROWS 5
 static struct {
@@ -20,13 +22,16 @@ static struct {
 
 static void search_changed(void);
 
+/* passwords: every symbol, one capital at a time */
+static int kb_secret(int purpose) { return purpose == KB_WIFI || purpose == KB_RA_PASS; }
+
 static void kb_open(int purpose, const char *title, const char *initial) {
 	memset(&kb, 0, sizeof kb);
 	kb.purpose = purpose;
 	sncpy(kb.title, title, sizeof kb.title);
 	sncpy(kb.text, initial ? initial : "", sizeof kb.text);
 	kb.row = 1;
-	kb.auto_caps = purpose != KB_SEARCH; /* names start each word with a capital */
+	kb.auto_caps = purpose != KB_SEARCH && !kb_secret(purpose) && purpose != KB_RA_USER; /* names start each word with a capital */
 	kb.shift = kb.auto_caps && !kb.text[0];
 	dirty = 1;
 }
@@ -38,10 +43,11 @@ static int kb_wide_key(int col) { return col < 2 ? KK_SHIFT : col < 6 ? KK_SPACE
 static void kb_append(char c) {
 	size_t l = strlen(kb.text);
 	if (l + 1 >= sizeof kb.text) return;
-	if (kb.shift && c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+	if (kb.shift == 1 && c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
 	kb.text[l] = c;
 	kb.text[l + 1] = 0;
 	if (kb.auto_caps) kb.shift = c == ' ';
+	else if (kb.shift == 1 && kb_secret(kb.purpose)) kb.shift = 0; /* one capital at a time */
 	if (kb.purpose == KB_SEARCH) search_changed();
 	dirty = 1;
 }
@@ -62,6 +68,31 @@ static void kb_finish(void) {
 	if (p == KB_SEARCH) return; /* Search handles START itself */
 	kb.purpose = KB_NONE;
 	dirty = 1;
+	if (p == KB_WIFI) {
+		if (strlen(kb.text) < 8) { toast("Wi-Fi passwords have at least 8 characters"); kb.purpose = p; return; }
+		net_wifi_connect(&wifi_pending, kb.text); /* (as typed: spaces count in a password) */
+		return;
+	}
+#ifdef ZAPPO_KNULLI
+	if (p == KB_RA_USER) {
+		if (!text[0]) { toast("Type your RetroAchievements name"); kb.purpose = p; return; }
+		char t[120];
+		sncpy(ra_user_typed, text, sizeof ra_user_typed);
+		snfmt(t, sizeof t, "Password for %s", text);
+		kb_open(KB_RA_PASS, t, "");
+		return;
+	}
+	if (p == KB_RA_PASS) {
+		if (!kb.text[0]) { toast("Type the password"); kb.purpose = p; return; }
+		if (net_busy()) { toast("One moment: %s", net_job()); kb.purpose = p; return; }
+		sncpy(ra_pass_typed, kb.text, sizeof ra_pass_typed);
+		memset(kb.text, 0, sizeof kb.text);
+		ra_checking = 1;
+		net_ra_signin(ra_user_typed, ra_pass_typed);
+		toast("Signing in to RetroAchievements...");
+		return;
+	}
+#endif
 	if (!text[0]) { toast("Type a name first"); kb.purpose = p; return; }
 	if (p == KB_NEWPL || p == KB_NEWPL_ADD) music_named_playlist(p == KB_NEWPL_ADD, text);
 }
@@ -84,9 +115,9 @@ static int kb_button(int b) {
 		else kb.col = (kb.col + 1) % KB_COLS;
 		break;
 	case B_A:
-		if (kb.row < 4) kb_append(KB_KEYS[kb.row][kb.col]);
+		if (kb.row < 4) kb_append(kb.shift == 2 ? KB_SYMS[kb.row][kb.col] : KB_KEYS[kb.row][kb.col]);
 		else switch (kb_wide_key(kb.col)) {
-			case KK_SHIFT: kb.shift = !kb.shift; break;
+			case KK_SHIFT: kb.shift = kb_secret(kb.purpose) ? (kb.shift + 1) % 3 : !kb.shift; break;
 			case KK_SPACE: if (kb.text[0]) kb_append(' '); break;
 			case KK_DEL: kb_delete(); break;
 			case KK_DONE: kb_finish(); break;
@@ -94,7 +125,7 @@ static int kb_button(int b) {
 		break;
 	case B_Y: if (kb.text[0]) kb_append(' '); break;
 	case B_X: kb_delete(); break;
-	case B_SELECT: kb.shift = !kb.shift; break;
+	case B_SELECT: kb.shift = kb_secret(kb.purpose) ? (kb.shift + 1) % 3 : !kb.shift; break;
 	case B_START: kb_finish(); break;
 	case B_B:
 		if (kb.text[0]) kb_delete();
@@ -116,12 +147,12 @@ static void draw_kb(int x, int y, int w, int kh, int focused) {
 				int kx = x + c * (kw + gap);
 				int sel = focused && kb.row == r && kb.col == c;
 				gfx_rrect(kx, ky, kw, kh, 8, sel ? g_theme.accent : g_theme.surface_hi);
-				char ch[2] = {KB_KEYS[r][c], 0};
-				if (kb.shift && ch[0] >= 'a' && ch[0] <= 'z') ch[0] = (char)(ch[0] - 'a' + 'A');
+				char ch[2] = {kb.shift == 2 ? KB_SYMS[r][c] : KB_KEYS[r][c], 0};
+				if (kb.shift == 1 && ch[0] >= 'a' && ch[0] <= 'z') ch[0] = (char)(ch[0] - 'a' + 'A');
 				text_draw(F_BODY, kx + (kw - text_width(F_BODY, ch)) / 2, ky + kh / 2 - font_height(F_BODY) / 2, ch, sel ? g_theme.accent_text : g_theme.text);
 			}
 		} else {
-			static const char *L[] = {"Shift", "Space", "Delete", "Done"};
+			const char *L[] = {kb.shift == 2 ? "abc" : kb_secret(kb.purpose) && kb.shift == 1 ? "Symbols" : "Shift", "Space", "Delete", "Done"};
 			static const int C0[] = {0, 2, 6, 8}, CN[] = {2, 4, 2, 2};
 			for (int k = 0; k < 4; k++) {
 				int kx = x + C0[k] * (kw + gap), ww = CN[k] * kw + (CN[k] - 1) * gap;
@@ -164,7 +195,7 @@ static void draw_kb_modal(void) {
 	gfx_rrect(x, y, w, h, g_theme.radius + 4, solid_surface());
 	text_draw_fit(F_BODY, x + 20, y + 16, w - 40, kb.title, g_theme.text, 0);
 	int fy = y + 18 + font_height(F_BODY) + 8;
-	draw_kb_field(x + 16, fy, w - 32, 44, "Name");
+	draw_kb_field(x + 16, fy, w - 32, 44, kb_secret(kb.purpose) ? "Password" : "Name");
 	draw_kb(x + 16, fy + 44 + 14, w - 32, kh, 1);
 	static Hint H[] = {{"Y", "Space"}, {"X", "Delete"}, {"START", "Done"}, {"B", "Cancel"}};
 	H[3].btn = back_btn();

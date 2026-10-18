@@ -232,6 +232,9 @@ int plat_poll(InputEvent *ev) {
 }
 
 void plat_wait(int timeout_ms) {
+#ifdef PLAT_IDLE_HOOK
+	timeout_ms = PLAT_IDLE_HOOK(timeout_ms);	/* the platform's own upkeep (it can ask to be back sooner) */
+#endif
 	if (timeout_ms <= 0) return;
 	struct pollfd pfd[MAX_DEV];
 	for (int i = 0; i < ndevs; i++) { pfd[i].fd = devs[i].fd; pfd[i].events = POLLIN; pfd[i].revents = 0; }

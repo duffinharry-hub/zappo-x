@@ -3,10 +3,11 @@
 #   4 Cortex-A53 cores, 1 GB, 640x480 screen, the card in an SD slot (TF1),
 #   kernel and start-up messages in console.log (like the handheld's serial
 #   port), stick-light controller on a socket, a control channel for the twin's
-#   helpers, network with port 18080 -> the twin's port 80 (and 18022 -> ssh), sound into a
+#   helpers, network with port 18080 -> the twin's port 80 (18022 -> ssh, 18640 -> Send to Zappo), sound into a
 #   pipe that audiorec.py follows (it keeps the last few minutes).
 # Everything lives in $TWIN_RUN (default /home/claude/twin/run).
-# Extra: TWIN_APPEND (kernel command line), TWIN_QEMU_ARGS (QEMU options, e.g. tracing).
+# Extra: TWIN_APPEND (kernel command line), TWIN_QEMU_ARGS (QEMU options, e.g. tracing),
+# TWIN_SCREEN_W/H (the screen size, e.g. 1280 x 720 to see Zappo X as on a TV).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 TWIN=${TWIN:-/home/claude/twin}
@@ -33,14 +34,14 @@ python3 "$HERE/audiorec.py" record >/dev/null 2>&1 &
 exec "$QEMU" -name "RG40XX H twin" \
   -M virt -cpu cortex-a53 -smp 4 -m 1024 \
   -kernel "$KERNEL" -initrd "$RUN/initrd.gz" -dtb "$DTB" \
-  -append "${TWIN_CONSOLE:-console=hvc0} loglevel=4 rootwait init=/init ${TWIN_APPEND:-}" \
+  -append "${TWIN_CONSOLE:-console=hvc0} loglevel=4 rootwait init=/init mac80211_hwsim.radios=4 ${TWIN_APPEND:-}" \
   -device sdhci-pci -drive if=none,id=tf1,file="$RUN/sd.img",format=raw -device sd-card,drive=tf1 \
-  -device virtio-gpu-pci,xres=640,yres=480 \
+  -device virtio-gpu-pci,xres=${TWIN_SCREEN_W:-640},yres=${TWIN_SCREEN_H:-480} \
   -device virtio-serial-pci \
   -chardev file,id=con,path=console.log -device virtconsole,chardev=con,name=console \
   -chardev socket,id=led,path=led.sock,server=on,wait=off -device virtconsole,chardev=led,name=rgbled \
   -chardev socket,id=agent,path=agent.sock,server=on,wait=off -device virtserialport,chardev=agent,name=zappo.twin \
-  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:18080-:80,hostfwd=tcp:127.0.0.1:18022-:22 -device virtio-net-pci,netdev=net0 \
+  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:18080-:80,hostfwd=tcp:127.0.0.1:18022-:22,hostfwd=tcp:127.0.0.1:18640-:8640 -device virtio-net-pci,netdev=net0 \
   -audiodev wav,id=snd0,path="$RUN/audio.fifo" -device virtio-sound-pci,audiodev=snd0,streams=1 \
   -device virtio-rng-pci \
   -display none -vga none \

@@ -1,10 +1,11 @@
 #!/bin/sh
 # Zappo X device twin: Wi-Fi.  The RG40XX H has a Wi-Fi radio and no cable
-# network, so the twin is set up the same way: two simulated radios
-# (mac80211_hwsim) - wlan0 stays with the handheld; wlan1 and the twin's
-# network cable (eth0) go into a separate "router" world, where
-# zappo-twin-router runs the network "ZappoTwin" (password zappo1234) and
-# shares its line.  From outside, 127.0.0.1:18080/18022 reach the handheld's
+# network, so the twin is set up the same way: simulated radios
+# (mac80211_hwsim, four) - wlan0 stays with the handheld; the others and the
+# twin's network cable (eth0) go into a separate "router" world, where
+# zappo-twin-router runs the network "ZappoTwin" (password zappo1234, shares
+# its line) and two neighbours: "Corner Cafe" (open) and "Next Door" (a
+# password the handheld doesn't know).  From outside, 127.0.0.1:18080/18022 reach the handheld's
 # ports 80/22 (and 8640).
 case "$1" in
   start) ;;
@@ -16,6 +17,7 @@ ip netns add router 2>/dev/null
 R="ip netns exec router"
 iw phy phy1 set netns name router 2>/dev/null || $R ip link show wlan1 >/dev/null 2>&1 \
   || { echo "no second radio"; exit 0; }
+for p in phy2 phy3; do iw phy $p set netns name router 2>/dev/null; done
 ip link set eth0 netns router 2>/dev/null
 $R ip link set lo up
 $R ip link set eth0 up

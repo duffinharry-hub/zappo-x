@@ -28,7 +28,11 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+static int lights_tick(int wait_ms);
+#define PLAT_IDLE_HOOK lights_tick
 #include "plat_evdev.inc"
+#include "config.h"
+#include "ui.h"
 
 #define CPU_DIR "/sys/devices/system/cpu/cpu0/cpufreq"
 #define PSY "/sys/class/power_supply"
@@ -53,14 +57,28 @@ static int screen_open(void) {
 		SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
 		SDL_LogSetOutputFunction(sdl_log, NULL);
 	}
-	/* KMS/DRM on the twin, Mali on the handheld: SDL picks what it was built for */
-	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-		LOG("SDL_Init: %s", SDL_GetError());
-		return -1;
+	/* KMS/DRM on the twin, Mali on the handheld: SDL picks what it was built
+	 * for. Just after switch-on the screen can still be busy (Knulli's start-up
+	 * picture): SDL then settles for its "offscreen" driver, which shows
+	 * nothing - so wait for the real one (up to 30 s). */
+	for (int attempt = 0;; attempt++) {
+		if (SDL_Init(SDL_INIT_VIDEO) == 0) {
+			const char *drv = SDL_GetCurrentVideoDriver();
+			if (drv && strcmp(drv, "offscreen") && strcmp(drv, "dummy") && strcmp(drv, "evdev")) {
+				if (attempt) LOG("screen: %s after %d tries", drv, attempt + 1);
+				break;
+			}
+			if (attempt == 0 || attempt % 10 == 0) LOG("screen: only SDL's %s driver so far; waiting for the screen", drv ? drv : "?");
+			SDL_QuitSubSystem(SDL_INIT_VIDEO);
+		} else if (attempt == 0 || attempt % 10 == 0) LOG("SDL_Init: %s", SDL_GetError());
+		if (attempt >= 60) return -1;
+		usleep(500000);
 	}
 	SDL_ShowCursor(SDL_DISABLE);
+	/* the screen as it is (a TV on HDMI can be 1280 x 720): Zappo's 640 x 480
+	 * picture is scaled to fit, with bars at the sides */
 	win = SDL_CreateWindow("Zappo X", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-	                       SCREEN_W, SCREEN_H, SDL_WINDOW_FULLSCREEN);
+	                       SCREEN_W, SCREEN_H, SDL_WINDOW_FULLSCREEN_DESKTOP);
 	if (!win) {
 		LOG("SDL_CreateWindow: %s", SDL_GetError());
 		return -1;
@@ -72,6 +90,12 @@ static int screen_open(void) {
 		return -1;
 	}
 	SDL_RenderSetLogicalSize(ren, SCREEN_W, SCREEN_H);
+	{
+		int ow = 0, oh = 0;
+		SDL_GetRendererOutputSize(ren, &ow, &oh);
+		/* made bigger: smoothly (not every pixel grows by the same amount) */
+		if (ow != SCREEN_W || oh != SCREEN_H) SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+	}
 	tex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_W, SCREEN_H);
 	if (!tex) {
 		LOG("SDL_CreateTexture: %s", SDL_GetError());
@@ -97,8 +121,206 @@ int plat_has_vsync(void) { return vsync; }
 
 static uint64_t t_start, t_screen;
 
+/* ------------------------------------------------------------ stick lights */
+
+/* By default the lights follow the section on screen, in its Zappo's colour
+ * (Settings > Lights: one colour, Knulli's own setting, or off). Knulli's
+ * light daemon does the talking to the controller: it reads the colours from
+ * its values file each second, applies Knulli's light brightness (scaled with
+ * the screen's, when set so) and still shows low battery and charging on top.
+ * It also rewrites that file from Knulli's settings whenever batocera.conf
+ * changes, so Zappo X checks now and then that its colours are still there. */
+#define LED_VALUES "/var/run/knulli-rgb-led-daemon.values"
+#define LED_DAEMON_PID "/var/run/knulli-rgb-led-daemon.led.pid"
+const LightColour plat_light_colours[LIGHT_COLOURS] = {
+	{"Electric yellow", 0xf5c842}, {"Crystal purple", 0xb57cff}, {"Fire orange", 0xff8a1f},
+	{"Water blue", 0x3fc1ff}, {"Ice blue", 0x8fd3ff}, {"Leaf green", 0x9fd84a},
+	{"Snow white", 0xe9ecf5}, {"Ruby red", 0xff3b4e}, {"Rose pink", 0xff7ac8},
+};
+/* each section's Zappo: Recent, Favorites, Consoles, Music, Videos, Knulli's menu, Settings */
+static const int SECTION_COLOUR[] = {0, 1, 2, 3, 4, 6, 5};
+
+/* batocera.conf "key=value", read directly (batocera-settings-get is slow) */
+#define KNULLI_CONF "/userdata/system/batocera.conf"
+static uint64_t conf_written_at; /* (Knulli's light daemon reacts to changes: see lights_tick) */
+int plat_conf_get(const char *key, char *out, size_t n) {
+	out[0] = 0;
+	FILE *f = fopen(KNULLI_CONF, "r");
+	if (!f) return 0;
+	char line[1024];
+	size_t kl = strlen(key);
+	int found = 0;
+	while (fgets(line, sizeof line, f))
+		if (!strncmp(line, key, kl) && line[kl] == '=') {
+			sncpy(out, line + kl + 1, n);
+			out[strcspn(out, "\r\n")] = 0;
+			found = 1;	/* (the last one counts, as for Knulli) */
+		}
+	fclose(f);
+	return found;
+}
+
+int plat_conf_int(const char *key, int fallback) {
+	char v[64];
+	if (!plat_conf_get(key, v, sizeof v) || !v[0]) return fallback;
+	if (!strcmp(v, "true") || !strcmp(v, "on")) return 1;
+	if (!strcmp(v, "false") || !strcmp(v, "off")) return 0;
+	return atoi(v);
+}
+
+/* Like batocera-settings-set: the key's line is changed where it is (an
+ * unset one is commented out, so Knulli's default applies), else added at the
+ * end. Written beside and renamed over, so the file is never left half done. */
+void plat_conf_set(const char *key, const char *value) {
+	size_t len = 0;
+	char *txt = file_read_all(KNULLI_CONF, &len);
+	if (!txt) { txt = xmalloc(1); txt[0] = 0; }
+	char tmp[] = KNULLI_CONF ".zappo";
+	FILE *f = fopen(tmp, "w");
+	if (!f) { free(txt); return; }
+	size_t kl = strlen(key);
+	int done = 0;
+	for (char *line = txt; *line;) {
+		char *nl = strchr(line, '\n');
+		size_t ll = nl ? (size_t)(nl - line) : strlen(line);
+		int active = !strncmp(line, key, kl) && line[kl] == '=';
+		int commented = line[0] == '#' && !strncmp(line + 1, key, kl) && line[kl + 1] == '=';
+		if ((active || commented) && value && !done) { fprintf(f, "%s=%s\n", key, value); done = 1; }
+		else if (active) fprintf(f, "#%.*s\n", (int)ll, line);
+		else fprintf(f, "%.*s\n", (int)ll, line);
+		line = nl ? nl + 1 : line + ll;
+	}
+	if (value && !done) fprintf(f, "%s=%s\n", key, value);
+	free(txt);
+	fflush(f);
+	fsync(fileno(f));
+	fclose(f);
+	rename(tmp, KNULLI_CONF);
+	conf_written_at = now_ms();
+}
+
+int plat_lights_available(void) { return file_exists(LED_DAEMON_PID) && file_exists(LED_VALUES); }
+
+static char led_written[96];   /* what Zappo X last put in the values file */
+static long long led_stamp = -1;
+static int led_mode_applied = -1;
+static uint64_t led_next_check;
+
+static long long led_file_stamp(void) {
+	struct stat sb;
+	return stat(LED_VALUES, &sb) == 0 ? (long long)sb.st_mtime * 1000003LL + sb.st_size + (long long)sb.st_ino * 7919 : -1;
+}
+
+/* the values line for now, or 0 when Knulli's own setting applies */
+static int lights_line(char *out, size_t n) {
+	int mode = g_set.lights;
+	if (mode == LIGHTS_KNULLI) return 0;
+	if (mode == LIGHTS_OFF) { snfmt(out, n, "0 0 0 0 0 0 0 0 0\n"); return 1; }
+	int ci = g_set.lights_colour;
+	if (mode == LIGHTS_FOLLOW) {
+		int t = ui_tab();
+		if (t < 0 || t >= (int)ARRAY_LEN(SECTION_COLOUR)) t = 2;
+		ci = SECTION_COLOUR[t];
+	}
+	uint32_t c = plat_light_colours[CLAMP(ci, 0, LIGHT_COLOURS - 1)].rgb;
+	int r = (int)(c >> 16) & 255, g = (int)(c >> 8) & 255, b = (int)c & 255;
+	static const int EFFECT_MODE[] = {1, 4, 3, 2}; /* steady, slow, medium, fast breathing */
+	snfmt(out, n, "%d %d %d %d %d %d %d %d %d\n", EFFECT_MODE[CLAMP(g_set.lights_effect, 0, 3)],
+	      plat_conf_int("led.brightness", 70), plat_conf_int("led.speed", 5), r, g, b, r, g, b);
+	return 1;
+}
+
+static void lights_write(const char *line) {
+	char tmp[] = LED_VALUES ".zappo";
+	FILE *f = fopen(tmp, "w");
+	if (!f) return;
+	fputs(line, f);
+	fclose(f);
+	rename(tmp, LED_VALUES);
+	sncpy(led_written, line, sizeof led_written);
+	led_stamp = led_file_stamp();
+}
+
+/* force: write even if nothing changed on Zappo's side */
+static void lights_update(int force) {
+	if (!plat_lights_available()) return;
+	if (g_set.lights == LIGHTS_KNULLI) {
+		if (led_mode_applied != LIGHTS_KNULLI) {
+			/* hand back to Knulli's own colours and effect */
+			if (system("knulli-rgb-led-daemon import >/dev/null 2>&1 &") != 0) LOG("lights: could not hand back to Knulli");
+			led_written[0] = 0;
+		}
+		led_mode_applied = LIGHTS_KNULLI;
+		return;
+	}
+	char line[96];
+	lights_line(line, sizeof line);
+	if (force || strcmp(line, led_written) != 0 || led_mode_applied != g_set.lights) lights_write(line);
+	led_mode_applied = g_set.lights;
+}
+
+static void lights_follow(void) { lights_update(0); }
+
+/* when idle: put Zappo's colours back if Knulli's daemon rewrote the file (it
+ * does about a second after any change to batocera.conf - so for a few
+ * seconds after Zappo X changes it, look often, to keep the flash short) */
+static int lights_tick(int wait_ms) {
+	int soon = now_ms() - conf_written_at < 4000;
+	if (soon && wait_ms > 150) wait_ms = 150;
+	if (now_ms() < led_next_check && !soon) return wait_ms;
+	led_next_check = now_ms() + 900;
+	if (g_set.lights == LIGHTS_KNULLI || !led_written[0]) return wait_ms;
+	if (led_file_stamp() != led_stamp) lights_update(1);
+	return wait_ms;
+}
+
+void plat_lights_apply(void) { lights_update(1); }
+
+/* ------------------------------------------------------------------ HDMI */
+
+/* Knulli shows everything on the TV while one is plugged in (its start
+ * script switches the output: knulli/zappo-x.sh does the same); Zappo X
+ * starts again on the new screen when the cable goes in or out. */
+#define HDMI_STATE "/sys/devices/platform/soc/6000000.hdmi/extcon/hdmi/state"
+static int hdmi_read(void) {
+	const char *p = getenv("ZAPPO_HDMI_STATE");	/* (the twin has no HDMI: a file stands in) */
+	char b[32] = "";
+	FILE *f = fopen(p && *p ? p : HDMI_STATE, "r");
+	if (!f) return -1;
+	if (!fgets(b, sizeof b, f)) b[0] = 0;
+	fclose(f);
+	return strstr(b, "HDMI=1") != NULL;
+}
+
+int plat_tv(void) { return hdmi_read() == 1; }
+
+int plat_display_changed(void) {
+	static int at_start = -2;
+	static uint64_t next;
+	if (now_ms() < next) return 0;
+	next = now_ms() + 1000;
+	int h = hdmi_read();
+	if (at_start == -2) at_start = h;
+	return h != at_start;
+}
+
+/* ------------------------------------------------------- battery saver */
+
+#define SAVER_PAUSE "/var/run/battery-saver/zappo-x.pause"
+void plat_keep_awake(int on) {
+	static int now = -1;
+	if (on == now) return;
+	now = on;
+	if (on) {
+		mkdir("/var/run/battery-saver", 0755);
+		FILE *f = fopen(SAVER_PAUSE, "w");
+		if (f) fclose(f);
+	} else unlink(SAVER_PAUSE);
+}
+
 void plat_present(void) {
 	frames_presented++;
+	lights_follow();
 	if (!tex) return;
 	if (frames_presented == 1)
 		LOG("first picture %llu ms after start (screen ready after %llu ms)",

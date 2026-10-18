@@ -678,8 +678,15 @@ void import_dir(char *out, size_t n) {
 static const char README[] =
 	"IMPORT - drop games and music here\r\n"
 	"==================================\r\n"
+#ifdef ZAPPO_KNULLI
+	"Copy games, music, films and BIOS files into this folder from your PC, or\r\n"
+	"send them from your phone (Settings > Send to Zappo). Zappo X moves each one\r\n"
+	"into the right place: games to their console in roms, songs to music,\r\n"
+	"films to videos, BIOS files to bios.\r\n"
+#else
 	"Copy games, music and BIOS files into this folder from your PC. The next time\r\n"
 	"Zappo opens, it moves each one into the right console folder in Roms.\r\n"
+#endif
 	"\r\n"
 	"* Most games are recognised by their file type: .gba .gbc .gb .nes .sfc\r\n"
 	"  .smc .md .sms .gg .pce .ngp .ws .lnx .a26 and many more.\r\n"

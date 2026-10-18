@@ -20,21 +20,47 @@ wpa_passphrase=zappo1234
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 CONF
+# the neighbours (when the twin has the radios for them)
+cat > $D/hostapd-cafe.conf <<CONF
+interface=wlan2
+driver=nl80211
+ssid=Corner Cafe
+hw_mode=g
+channel=1
+CONF
+cat > $D/hostapd-nextdoor.conf <<CONF
+interface=wlan3
+driver=nl80211
+ssid=Next Door
+hw_mode=g
+channel=11
+wpa=2
+wpa_passphrase=not-your-network
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+CONF
+CONFS=$D/hostapd.conf
+$R ip link show wlan2 >/dev/null 2>&1 && CONFS="$CONFS $D/hostapd-cafe.conf"
+$R ip link show wlan3 >/dev/null 2>&1 && CONFS="$CONFS $D/hostapd-nextdoor.conf"
 alive() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
 n=0
 while true; do
   n=$((n+1))
-  $R sh -c 'for k in /sys/class/rfkill/rfkill*; do [ "$(cat $k/name 2>/dev/null)" = phy1 ] && [ "$(cat $k/soft)" = 1 ] && echo 0 > $k/soft; done'
-  $R ip link set wlan1 up 2>/dev/null
+  $R sh -c 'for k in /sys/class/rfkill/rfkill*; do case "$(cat $k/name 2>/dev/null)" in phy1|phy2|phy3) [ "$(cat $k/soft)" = 1 ] && echo 0 > $k/soft ;; esac; done'
+  for w in wlan1 wlan2 wlan3; do $R ip link set $w up 2>/dev/null; done
   $R ip addr add 192.168.77.1/24 dev wlan1 2>/dev/null
-  alive $D/hostapd.pid || $R hostapd -B -P $D/hostapd.pid $D/hostapd.conf >$D/hostapd.log 2>&1
-  alive $D/dnsmasq.pid || $R dnsmasq --interface=wlan1 --bind-interfaces --dhcp-range=192.168.77.50,192.168.77.150,12h \
+  $R ip addr add 192.168.78.1/24 dev wlan2 2>/dev/null
+  alive $D/hostapd.pid || $R hostapd -B -P $D/hostapd.pid $CONFS >$D/hostapd.log 2>&1
+  alive $D/dnsmasq.pid || $R dnsmasq --interface=wlan1 --interface=wlan2 --bind-interfaces \
+      --dhcp-range=192.168.77.50,192.168.77.150,12h --dhcp-range=192.168.78.50,192.168.78.150,1h \
       --dhcp-host=02:00:00:00:00:00,192.168.77.20 --no-resolv --server=10.0.2.3 --dhcp-leasefile=$D/dnsmasq.leases \
       --pid-file=$D/dnsmasq.pid --conf-file=/dev/null --log-facility=$D/dnsmasq.log
   # if the handheld looked for its network before the router was up, connman
   # gives up on it for a while; on a real handheld the network is already
   # there, so nudge it: scan, or retry a network it has the password for
-  if [ $((n % 10)) -eq 3 ] && pidof connmand >/dev/null && ! ip -4 addr show wlan0 2>/dev/null | grep -q inet; then
+  # (only around start-up: later, leaving the network is the handheld's choice)
+  up=$(cut -d. -f1 /proc/uptime)
+  if [ "$up" -lt 300 ] && [ $((n % 10)) -eq 3 ] && pidof connmand >/dev/null && ! ip -4 addr show wlan0 2>/dev/null | grep -q inet; then
     S=$(connmanctl services 2>/dev/null | awk '/ ZappoTwin / {print $NF; exit}')
     if [ -z "$S" ]; then
       connmanctl scan wifi >/dev/null 2>&1

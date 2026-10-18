@@ -6,7 +6,7 @@ ARM_TOOLCHAIN ?= /opt/arm-rpi-4.9.3-linux-gnueabihf   # any arm-linux-gnueabihf 
 ARM_CC ?= $(ARM_TOOLCHAIN)/bin/arm-linux-gnueabihf-gcc
 ARM_STRIP ?= $(ARM_TOOLCHAIN)/bin/arm-linux-gnueabihf-strip
 
-COMMON = src/util.c src/plat_common.c src/gfx.c src/font.c src/config.c src/data.c src/import.c src/music.c src/musiclib.c src/playlists.c src/decoders.c src/video.c src/ui.c src/main.c third_party/cJSON.c
+COMMON = src/util.c src/plat_common.c src/gfx.c src/font.c src/config.c src/data.c src/net.c src/import.c src/music.c src/musiclib.c src/playlists.c src/decoders.c src/video.c src/ui.c src/main.c third_party/cJSON.c third_party/qrcodegen.c
 CFLAGS_COMMON = -std=gnu99 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
 
 .PHONY: all host arm web tablet knulli clean

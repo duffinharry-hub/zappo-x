@@ -115,9 +115,11 @@ int app_end(void) {
 	settings_save();
 	ui_save_music();
 	music_shutdown(); /* frees the sound device before RetroArch starts */
-	LOG("Clove exiting (%s)", ui_state() == UI_LAUNCH ? "launching" : ui_state() == UI_FALLBACK ? "buttons not recognised" : "quit");
+	LOG("Clove exiting (%s)", ui_state() == UI_LAUNCH ? "launching" : ui_state() == UI_FALLBACK ? "buttons not recognised"
+	    : ui_state() == UI_RESTART ? "the screen changed" : "quit");
 	plat_quit();
-	return ui_state() == UI_FALLBACK ? 4 : 0;
+	/* 4: the firmware's menu instead; 5: start again (on the TV, or back on the handheld) */
+	return ui_state() == UI_FALLBACK ? 4 : ui_state() == UI_RESTART ? 5 : 0;
 }
 
 #ifndef ZAPPO_NO_MAIN

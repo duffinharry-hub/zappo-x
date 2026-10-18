@@ -9,6 +9,7 @@ T="python3 $HERE/twinctl.py"
 $T put "$R/build/zappo-x" /userdata/system/zappo-x/zappo-x.new >/dev/null
 $T put "$R/knulli/zappo-x.sh" /userdata/system/zappo-x/zappo-x.sh.new >/dev/null
 $T put "$R/knulli/zappox" /userdata/system/services/zappox.new >/dev/null
+for f in send-to-zappo.py get-box-art.py; do $T put "$R/knulli/$f" /userdata/system/zappo-x/$f >/dev/null; done
 $T sh '/userdata/system/services/zappox stop; killall zappo-x.sh 2>/dev/null; sleep 1
 cd /userdata/system/zappo-x && mv -f zappo-x.new zappo-x && mv -f zappo-x.sh.new zappo-x.sh && chmod +x zappo-x zappo-x.sh
 mv -f /userdata/system/services/zappox.new /userdata/system/services/zappox && chmod +x /userdata/system/services/zappox

@@ -17,7 +17,20 @@ CMD=/tmp/zappo-x-command.sh
 knulli_menu() {
 	echo "$(date) Knulli's menu ($1)" >> $RUNS
 	rm -f /var/run/zappo-x.pid   # (Zappo X isn't running any more: see "Zappo X.sh" in Ports)
+	knulli-rgb-led-daemon import >/dev/null 2>&1   # the stick lights: Knulli's own colours again
 	exec emulationstation-standalone
+}
+
+# The TV (HDMI) while one is plugged in, else the handheld's screen - as
+# Knulli's own start does. Only when that changed: switching makes the screen
+# blink. (Zappo X exits with 5 when the cable goes in or out.)
+OUTPUT=
+apply_output() {
+	s=$(cat /sys/devices/platform/soc/6000000.hdmi/extcon/hdmi/state 2>/dev/null)
+	[ "$s" = "$OUTPUT" ] && return
+	OUTPUT=$s
+	batocera-resolution setOutput >/dev/null 2>&1
+	echo "$(date) screen: ${s:-the handheld's}" >> $RUNS
 }
 
 echo $$ > /var/run/zappo-x.pid
@@ -27,11 +40,8 @@ trap 'rm -f /var/run/zappo-x.pid; exit 0' TERM INT
 screen_free() {
 	n=0
 	while [ $n -lt 25 ]; do
-		busy=
-		for f in /proc/[0-9]*/fd/*; do
-			case "$(readlink "$f" 2>/dev/null)" in /dev/dri/card*) busy=1; break ;; esac
-		done
-		[ -z "$busy" ] && return 0
+		# (one ls for every open file: a readlink each took seconds)
+		ls -l /proc/[0-9]*/fd 2>/dev/null | grep -q ' -> /dev/dri/card' || return 0
 		sleep 0.2; n=$((n + 1))
 	done
 }
@@ -43,6 +53,7 @@ fails=0
 while :; do
 	[ -f "$D/disabled" ] && knulli_menu "switched in Settings"
 	screen_free
+	apply_output
 	t0=$(cut -d. -f1 /proc/uptime)
 	"$D/zappo-x"
 	rc=$?
@@ -58,6 +69,7 @@ while :; do
 	fi
 	echo "$(date) Zappo X exit $rc after $((t1 - t0)) s" >> $RUNS
 	[ $rc = 4 ] && knulli_menu "buttons not recognised"
+	if [ $rc = 5 ]; then OUTPUT=; continue; fi   # the screen changed (TV in or out, its picture size)
 	if [ $rc != 0 ] && [ $((t1 - t0)) -lt 10 ]; then
 		fails=$((fails + 1))
 		[ $fails -ge 5 ] && knulli_menu "Zappo X failed to start 5 times"

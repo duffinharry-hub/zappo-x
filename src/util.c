@@ -220,8 +220,14 @@ int sl_find(const StrList *l, const char *s) {
 }
 
 static FILE *g_log;
+/* what was said before the log file could be opened (the screen, the input
+ * devices: found before the card's paths are known) goes in first */
+static char early[4096];
+static size_t early_len;
 void log_open(const char *path) {
 	g_log = fopen(path, "w");
+	if (g_log && early_len) { fwrite(early, 1, early_len, g_log); fflush(g_log); }
+	early_len = 0;
 }
 void logf_(const char *fmt, ...) {
 	char buf[1024];
@@ -233,5 +239,12 @@ void logf_(const char *fmt, ...) {
 	if (g_log) {
 		fprintf(g_log, "%s\n", buf);
 		fflush(g_log);
+	} else {
+		size_t l = strlen(buf);
+		if (early_len + l + 2 < sizeof early) {
+			memcpy(early + early_len, buf, l);
+			early_len += l;
+			early[early_len++] = '\n';
+		}
 	}
 }

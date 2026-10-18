@@ -70,6 +70,9 @@ typedef struct {
 	int tab_visible[TAB_COUNT];
 	int start_tab;
 	int remember;     /* return to the last game/screen */
+	int lights;        /* the stick lights (Knulli): LIGHTS_FOLLOW, LIGHTS_ONE, LIGHTS_KNULLI, LIGHTS_OFF */
+	int lights_colour; /* LIGHTS_ONE: which of the Zappo colours */
+	int lights_effect; /* 0 steady, 1 slow breathing, 2 breathing, 3 fast breathing */
 } Settings;
 
 extern Settings g_set;
