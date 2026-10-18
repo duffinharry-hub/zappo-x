@@ -1,0 +1,23 @@
+#!/bin/sh
+# Knulli user service: starts Zappo X at boot in place of EmulationStation.
+# Installed as /userdata/system/services/zappox and switched on with
+# "batocera-services enable zappox" (install.sh does both).
+P=/var/run/zappo-x.pid   # the start loop (zappo-x.sh writes it)
+running() { [ -f $P ] && kill -0 "$(cat $P)" 2>/dev/null; }
+case "$1" in
+	start)
+		running && exit 0
+		setsid /userdata/system/zappo-x/zappo-x.sh </dev/null >/dev/null 2>&1 &
+		;;
+	stop)
+		running && kill "$(cat $P)"     # the loop first, so nothing restarts
+		killall zappo-x 2>/dev/null
+		n=0
+		while { running || pidof zappo-x >/dev/null; } && [ $n -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+		killall -9 zappo-x 2>/dev/null
+		rm -f $P
+		;;
+	status)
+		running && echo running || echo stopped
+		;;
+esac

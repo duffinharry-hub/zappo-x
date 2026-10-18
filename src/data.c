@@ -37,6 +37,7 @@ static const Known KNOWN[] = {
 	{"GBA", "Game Boy Advance", "GBA", C13, 12, NULL},
 	{"GPSP", "Game Boy Advance (gpSP)", "GBA gpSP", C12, 13, NULL},
 	{"SGB", "Super Game Boy", "SGB", C13, 14, NULL},
+	{"NDS", "Nintendo DS", "NDS", 0, 15, NULL},
 	{"FC", "NES / Famicom", "NES", C10, 20, NULL},
 	{"NESTOPIA", "NES (Nestopia)", "NES Nestopia", C11, 21, NULL},
 	{"FDS", "Famicom Disk System", "FDS", C10, 22, NULL},
@@ -46,13 +47,17 @@ static const Known KNOWN[] = {
 	{"VB", "Virtual Boy", "VB", C12, 26, NULL},
 	{"POKE", "Pokemon Mini", "PKM", C10, 27, NULL},
 	{"GW", "Game & Watch", "G&W", C10, 28, NULL},
+	{"N64", "Nintendo 64", "N64", 0, 29, NULL},
 	{"MD", "Mega Drive / Genesis", "MD", C12, 30, NULL},
 	{"MS", "Master System", "SMS", C10, 31, NULL},
 	{"GG", "Game Gear", "GG", C10, 32, NULL},
 	{"SEGACD", "Sega CD", "SCD", C13, 33, NULL},
 	{"THIRTYTWOX", "Sega 32X", "32X", C15, 34, NULL},
 	{"SEGASGONE", "Sega SG-1000", "SG-1000", C10, 35, NULL},
+	{"DC", "Dreamcast", "DC", 0, 36, NULL},
+	{"SATURN", "Sega Saturn", "Saturn", 0, 37, NULL},
 	{"PS", "PlayStation", "PS1", C15, 40, NULL},
+	{"PSP", "PlayStation Portable", "PSP", 0, 41, NULL},
 	{"PCE", "PC Engine", "PCE", C11, 50, NULL},
 	{"PCECD", "PC Engine CD", "PCE-CD", C12, 51, NULL},
 	{"SGFX", "PC Engine SuperGrafx", "SGFX", C11, 52, NULL},
@@ -188,9 +193,23 @@ static void each_extra(const char *k, cJSON *v) {
 }
 
 static void fav_load(void);
+static int write_command(const char *body);
+static void recents_add(const char *path);
+#ifdef ZAPPO_KNULLI
+#include "data_knulli.inc"
+#endif
 
 void data_init(void) {
 	char p[512];
+#ifdef ZAPPO_KNULLI
+	knulli_init_systems();
+	add_system("IMPORT", "");
+	sncpy(g_sys[data_sys_index("IMPORT")].dir, "import", sizeof g_sys[0].dir);
+	snfmt(p, sizeof p, "%s/systems.json", g_paths.clove);
+	load_json_object(p, each_extra);
+	fav_load();
+	return;
+#endif
 	snfmt(p, sizeof p, "%s/config/coremapping.json", g_paths.cfw);
 	load_json_object(p, each_coremap);
 	if (g_nsys == 0) LOG("coremapping.json missing or empty: %s", p);
@@ -209,6 +228,9 @@ int data_sys_index(const char *code) {
 }
 
 int data_sys_from_path(const char *path) {
+#ifdef ZAPPO_KNULLI
+	return knulli_sys_from_path(path);
+#endif
 	const char *r = strstr(path, "/Roms/");
 	if (!r) return -1;
 	r += 6;
@@ -235,7 +257,11 @@ const char *data_sys_core(int sys) {
 
 int data_sys_cpu(int sys) { return sys_get_int(g_sys[sys].code, "cpu", g_sys[sys].cpu_rec); }
 
+#ifdef ZAPPO_KNULLI
+static int is_script_system(int sys) { return 0; } /* Knulli starts ports too */
+#else
 static int is_script_system(int sys) { return strcmp(data_sys_core(sys), "/bin/sh") == 0; }
+#endif
 
 /* ------------------------------------------------------------ list helpers */
 
@@ -399,6 +425,7 @@ static void collect_refs(const char *dir, const char *file, NameSet *hide) {
 
 typedef struct { char *name; uint8_t is_dir; } RawEnt;
 static int reading_import; /* listing the Import folder: hide notes too */
+static const char *reading_exts; /* Knulli: only these file extensions are games */
 
 static int read_dir(const char *dir, int scripts_only, RawEnt **out) {
 	DIR *d = opendir(dir);
@@ -418,8 +445,14 @@ static int read_dir(const char *dir, int scripts_only, RawEnt **out) {
 		}
 		if (is_dir) {
 			if (str_ieq(nm, "Imgs") || scripts_only) continue;
+#ifdef ZAPPO_KNULLI
+			if (knulli_media_dir(nm)) continue;
+#endif
 		} else {
 			if (data_is_junk(nm)) continue;
+#ifdef ZAPPO_KNULLI
+			if (!reading_import && !knulli_ext_ok(reading_exts, nm)) continue;
+#endif
 			if (reading_import) {
 				char p[1024];
 				snfmt(p, sizeof p, "%s/%s", dir, nm);
@@ -456,8 +489,23 @@ static void free_raw(RawEnt *v, int n) {
 }
 
 static void sys_dir_on(int sys, const char *card, char *out, size_t n) {
+#ifdef ZAPPO_KNULLI
+	if (g_sys[sys].is_import) snfmt(out, n, "%s/import", card);
+	else snfmt(out, n, "%s/roms/%s", card, g_sys[sys].dir[0] ? g_sys[sys].dir : g_sys[sys].code);
+	return;
+#endif
 	if (g_sys[sys].is_import) snfmt(out, n, "%s/Import", card);
 	else snfmt(out, n, "%s/Roms/%s", card, g_sys[sys].code);
+}
+
+void data_sys_dir(int sys, char *out, size_t n) { sys_dir_on(sys, g_paths.mmc, out, n); }
+
+void data_bios_dir(char *out, size_t n) {
+#ifdef ZAPPO_KNULLI
+	snfmt(out, n, "%s/bios", g_paths.mmc);
+#else
+	snfmt(out, n, "%s/BIOS", g_paths.mmc);
+#endif
 }
 
 static void sys_dirs(int sys, char dirs[2][512], int *ndirs) {
@@ -485,6 +533,7 @@ void data_scan(void) {
 		int nd;
 		sys_dirs(i, dirs, &nd);
 		reading_import = s->is_import;
+		reading_exts = s->exts;
 		for (int k = 0; k < nd; k++) {
 			RawEnt *v;
 			int n = read_dir(dirs[k], is_script_system(i), &v);
@@ -492,6 +541,7 @@ void data_scan(void) {
 			free_raw(v, n);
 		}
 		reading_import = 0;
+		reading_exts = NULL;
 		total += s->count;
 	}
 	if (g_nsys > 1) qsort(g_sys, (size_t)g_nsys, sizeof(System), cmp_sys);
@@ -530,6 +580,7 @@ void data_list_system(int sys, const char *dir, EntryList *out) {
 	if (dir && *dir) { sncpy(dirs[0], dir, 512); nd = 1; }
 	else sys_dirs(sys, dirs, &nd);
 	reading_import = sys >= 0 && g_sys[sys].is_import;
+	reading_exts = sys >= 0 ? g_sys[sys].exts : NULL;
 	for (int k = 0; k < nd; k++) {
 		RawEnt *v;
 		int n = read_dir(dirs[k], is_script_system(sys), &v);
@@ -547,6 +598,7 @@ void data_list_system(int sys, const char *dir, EntryList *out) {
 		free_raw(v, n);
 	}
 	reading_import = 0;
+	reading_exts = NULL;
 	if (out->n > 1) qsort(out->v, (size_t)out->n, sizeof(Entry), cmp_entry);
 }
 
@@ -556,7 +608,11 @@ static cJSON *fav_root;
 static char fav_path[512];
 
 static void fav_load(void) {
+#ifdef ZAPPO_KNULLI
+	snfmt(fav_path, sizeof fav_path, "%s/favorites.lpl", g_paths.clove);
+#else
 	snfmt(fav_path, sizeof fav_path, "%s/retroarch/.retroarch/content_favorites.lpl", g_paths.cfw);
+#endif
 	char *txt = file_read_all(fav_path, NULL);
 	fav_root = txt ? cJSON_Parse(txt) : NULL;
 	free(txt);
@@ -674,6 +730,10 @@ static void recents_save(cJSON *j) {
 }
 
 static void ra_history(const char *card, cJSON **out) {
+#ifdef ZAPPO_KNULLI
+	*out = NULL; /* (Knulli's RetroArch keeps no shared history) */
+	return;
+#endif
 	char p[512];
 	snfmt(p, sizeof p, "%s/Saves/CurrentProfile/lists/content_history.lpl", card);
 	char *txt = file_read_all(p, NULL);
@@ -760,6 +820,9 @@ void data_recent_remove(const char *path) {
 
 int data_art_path(const Entry *e, char *out, size_t n) {
 	if (e->is_dir) return 0;
+#ifdef ZAPPO_KNULLI
+	if (e->sys >= 0) return knulli_art(e, out, n);
+#endif
 	char dir[512], stem[256];
 	path_dir(e->path, dir, sizeof dir);
 	path_stem(e->path, stem, sizeof stem);
@@ -832,6 +895,9 @@ static CoreInfo *core_info(const char *file) {
 }
 
 const char *data_core_label(const char *core_file) {
+#ifdef ZAPPO_KNULLI
+	return knulli_core_label(core_file);
+#endif
 	if (strcmp(core_file, "/bin/sh") == 0) return "Shell script";
 	return core_info(core_file)->label;
 }
@@ -845,6 +911,9 @@ static int ext_in(const char *ext, const char *list) {
 }
 
 int data_cores_for_system(int sys, StrList *out) {
+#ifdef ZAPPO_KNULLI
+	return knulli_cores(sys, out);
+#endif
 	sl_free(out);
 	const char *def = g_sys[sys].core;
 	if (*def) sl_push(out, def);
@@ -1018,6 +1087,10 @@ static void apply_managed(Cfg *c, int sys) {
 }
 
 static void prepare_retroarch(const char *rom_path, int sys) {
+#ifdef ZAPPO_KNULLI
+	data_start_over = 0; /* Knulli writes RetroArch's settings itself at each start */
+	return;
+#endif
 	char p[512];
 	snfmt(p, sizeof p, "%s/retroarch/.retroarch/retroarch.cfg", g_paths.cfw);
 	Cfg c;
@@ -1057,6 +1130,9 @@ int data_resume_point(const Entry *e, char *thumb, size_t n, time_t *when) {
 	if (thumb && n) thumb[0] = 0;
 	if (when) *when = 0;
 	if (!e || e->is_dir || !g_set.resume_games) return 0;
+#ifdef ZAPPO_KNULLI
+	return 0; /* (Knulli's saved states: later) */
+#endif
 	uint64_t now = plat_ticks();
 	if (strcmp(last_path, e->path) || now - last_at > 5000) {
 		sncpy(last_path, e->path, sizeof last_path);
@@ -1174,7 +1250,11 @@ static void video_controls(void) {
 
 static int write_command(const char *body) {
 	char p[512];
+#ifdef ZAPPO_KNULLI
+	snfmt(p, sizeof p, "%s/command.sh", g_paths.clove); /* zappo-x.sh runs it */
+#else
 	snfmt(p, sizeof p, "%s/retroarch/command.sh", g_paths.cfw);
+#endif
 	if (file_write_all(p, body, strlen(body)) != 0) return -1;
 	chmod(p, 0755);
 #if defined(__wasm__) || defined(ZAPPO_TABLET)
@@ -1216,6 +1296,10 @@ int data_launch(const Entry *e, char *err, size_t errn) {
 	int sys = e->sys;
 	if (sys < 0) { snfmt(err, errn, "Unknown system for this game"); return -1; }
 	if (g_sys[sys].is_import) { snfmt(err, errn, "Choose a console for this game first"); return -1; }
+#ifdef ZAPPO_KNULLI
+	data_next_video[0][0] = data_next_video[1][0] = 0;
+	return knulli_launch(e, err, errn);
+#endif
 	const char *core = data_sys_core(sys);
 	if (!*core) { snfmt(err, errn, "No emulator set for %s", g_sys[sys].code); return -1; }
 	char cp[512], qrom[1200], cpu[256], body[6000];
@@ -1265,6 +1349,13 @@ int data_launch(const Entry *e, char *err, size_t errn) {
 }
 
 int data_launch_retroarch(void) {
+#ifdef ZAPPO_KNULLI
+	/* Knulli's own menu, for everything Zappo X doesn't do itself. Run once
+	 * (not through its restart loop), so leaving it - Quit > Restart
+	 * EmulationStation - comes back to Zappo X. */
+	return write_command("#!/bin/sh\n# Written by Zappo X\n"
+	                     "cd /userdata && HOME=/userdata/system SDL_NOMOUSE=1 emulationstation --no-startup-game\n");
+#endif
 	char cpu[256], body[1024];
 	prepare_retroarch(NULL, -1);
 	cpu_lines(0, cpu, sizeof cpu);
@@ -1315,15 +1406,22 @@ static int bios_present(const char *name, int sys) {
 		if (c == 1 && !g_paths.sd_present) continue;
 		char p[768];
 		size_t l = strlen(name);
+#ifdef ZAPPO_KNULLI
+		const char *bios = "bios";
+#else
+		const char *bios = "BIOS";
+#endif
 		if (l && name[l - 1] == '/') {
-			snfmt(p, sizeof p, "%s/BIOS/%.*s", cards[c], (int)(l - 1), name);
+			snfmt(p, sizeof p, "%s/%s/%.*s", cards[c], bios, (int)(l - 1), name);
 			if (dir_exists(p)) return 1;
 			continue;
 		}
-		snfmt(p, sizeof p, "%s/BIOS/%s", cards[c], name);
+		snfmt(p, sizeof p, "%s/%s/%s", cards[c], bios, name);
 		if (file_exists(p)) return 1;
 		/* Neo Geo: neogeo.zip next to the games works too */
-		snfmt(p, sizeof p, "%s/Roms/%s/%s", cards[c], g_sys[sys].code, name);
+		char sd[512];
+		sys_dir_on(sys, cards[c], sd, sizeof sd);
+		snfmt(p, sizeof p, "%s/%s", sd, name);
 		if (file_exists(p)) return 1;
 	}
 	return 0;

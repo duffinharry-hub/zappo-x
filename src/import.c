@@ -470,6 +470,20 @@ static void card_of(const char *path, char *out, size_t n) {
 static void target_dir(const char *item, int target, const char *bios_subdir, char *out, size_t n) {
 	char card[256];
 	card_of(item, card, sizeof card);
+#ifdef ZAPPO_KNULLI
+	/* one card on Knulli: its own folder names */
+	if (target == IMPORT_TO_BIOS) {
+		char b[512];
+		data_bios_dir(b, sizeof b);
+		if (bios_subdir && *bios_subdir) snfmt(out, n, "%s/%s", b, bios_subdir);
+		else sncpy(out, b, n);
+	} else if (target == IMPORT_TO_MUSIC) {
+		music_dir(out, n);
+	} else {
+		data_sys_dir(target, out, n);
+	}
+	return;
+#endif
 	if (target == IMPORT_TO_BIOS) {
 		if (bios_subdir && *bios_subdir) snfmt(out, n, "%s/BIOS/%s", card, bios_subdir);
 		else snfmt(out, n, "%s/BIOS", card);
@@ -653,7 +667,13 @@ int import_move(const char *path, int target, char *err, size_t errn) {
 
 /* ------------------------------------------------------------------- run */
 
-void import_dir(char *out, size_t n) { snfmt(out, n, "%s/Import", g_paths.mmc); }
+void import_dir(char *out, size_t n) {
+#ifdef ZAPPO_KNULLI
+	snfmt(out, n, "%s/import", g_paths.mmc);
+#else
+	snfmt(out, n, "%s/Import", g_paths.mmc);
+#endif
+}
 
 static const char README[] =
 	"IMPORT - drop games and music here\r\n"

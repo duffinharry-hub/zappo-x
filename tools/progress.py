@@ -144,8 +144,24 @@ details h3,details h4,details h5{font-family:var(--display);font-weight:600;marg
 details li.sub{margin-left:18px;list-style:circle}
 code{font-family:var(--mono);font-size:.88em;background:var(--bg);padding:1px 5px;border-radius:5px;overflow-wrap:anywhere}
 .foot{color:var(--dim);font-size:14px}
+figure{margin:0;display:grid;gap:8px}
+figure img{width:100%;height:auto;border-radius:10px;display:block}
+figcaption{color:var(--dim);font-size:14px}
 </style>
 """
+
+
+def latest(p):
+    """the newest picture from the twin, inlined (the page is one file)"""
+    import base64
+    lt = p.get("latest")
+    if not lt:
+        return ""
+    data = open(os.path.join(R, lt["image"]), "rb").read()
+    kind = "jpeg" if lt["image"].endswith(".jpg") else "png"
+    return ('<section class="panel"><div class="eyebrow">Latest from the twin</div><figure>'
+            '<img src="data:image/%s;base64,%s" alt="%s"><figcaption>%s</figcaption></figure></section>'
+            % (kind, base64.b64encode(data).decode(), E(lt["caption"]), E(lt["caption"])))
 
 
 def build(p, plan, when):
@@ -179,13 +195,14 @@ def build(p, plan, when):
 <header>%s<div class="t"><div class="eyebrow">Anbernic RG40XX H &middot; H700</div><h1>Zappo X</h1>
 <div class="meta">%d of %d milestones done &middot; updated %s</div></div></header>
 <section class="panel now"><div class="eyebrow">Right now</div><p>%s</p></section>
+%s
 <section class="panel"><div class="eyebrow">Waiting on you</div><ul class="checks">%s</ul></section>
 <section class="ms"><h2>Milestones</h2>%s</section>
 <section class="ms"><h2>Sections and their Zappos</h2><div class="secs">%s</div>
 <p class="foot">Each section gets its own animated background, and the stick lights take its colour as you move between them.</p></section>
 <details><summary>The full plan</summary><div class="plan">%s</div></details>
 </main>""" % (ring(done_count, "var(--gold-fill)", 76, False, "%d of %d milestones done" % (done_count, len(ms))),
-              done_count, len(ms), E(when), E(p.get("now", "")), you, "".join(rows), secs, md(plan)))
+              done_count, len(ms), E(when), E(p.get("now", "")), latest(p), you, "".join(rows), secs, md(plan)))
 
 
 def main(out_dir):

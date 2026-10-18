@@ -17,6 +17,24 @@ const char *const BUTTON_NAMES[B_COUNT] = {
 void input_map_defaults(InputMap *m) {
 	memset(m, 0, sizeof *m);
 	for (int i = 0; i < B_COUNT; i++) m->joy_btn[i] = -1;
+#ifdef ZAPPO_KNULLI
+	/* The RG40XX H's "Anbernic RG40XX-H Controller", numbered as SDL does
+	 * (Knulli's es_input.cfg): three unnamed buttons first, then A B Y X L1 R1
+	 * SELECT START MENU L3 L2 R2 R3; the d-pad is hat 0. L2/R2 are buttons. */
+	m->joy_btn[B_A] = 3;
+	m->joy_btn[B_B] = 4;
+	m->joy_btn[B_Y] = 5;
+	m->joy_btn[B_X] = 6;
+	m->joy_btn[B_L1] = 7;
+	m->joy_btn[B_R1] = 8;
+	m->joy_btn[B_SELECT] = 9;
+	m->joy_btn[B_START] = 10;
+	m->joy_btn[B_MENU] = 11;
+	m->joy_btn[B_L2] = 13;
+	m->joy_btn[B_R2] = 14;
+	m->joy_axis_l2 = m->joy_axis_r2 = -1;
+	/* volume and power stay with Knulli's hotkey daemon (in games too) */
+#else
 	/* From GarlicOS's RetroArch autoconfig ("RG35XX Gamepad.cfg") and hotkeys. */
 	m->joy_btn[B_A] = 0;
 	m->joy_btn[B_B] = 1;
@@ -35,6 +53,7 @@ void input_map_defaults(InputMap *m) {
 	m->key[B_POWER][0] = 116;  /* KEY_POWER */
 	m->key[B_VOLUP][0] = 115;  /* KEY_VOLUMEUP */
 	m->key[B_VOLDN][0] = 114;  /* KEY_VOLUMEDOWN */
+#endif
 	/* Desktop keyboard (host testing, USB keyboards). */
 	m->key[B_UP][0] = 103;    /* KEY_UP */
 	m->key[B_DOWN][0] = 108;  /* KEY_DOWN */

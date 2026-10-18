@@ -70,7 +70,12 @@ void settings_load(void) {
 	s->clock_mode = CLAMP(jint(root, "clock_mode", 0), 0, 2);
 	s->battery_mode = CLAMP(jint(root, "battery_mode", 0), 0, 2);
 	s->show_guide = jint(root, "show_guide", 1);
+#ifdef ZAPPO_KNULLI
+	/* Knulli makes a folder for each of its ~180 systems: list only those with games */
+	s->empty_consoles = CLAMP(jint(root, "empty_consoles", 1), 0, 1);
+#else
 	s->empty_consoles = CLAMP(jint(root, "empty_consoles", 0), 0, 1);
+#endif
 	s->clock_offset = jint(root, "clock_offset", 0);
 	s->swap_ab = jint(root, "swap_ab", 0);
 	/* sensitivity (0.3: replaces "repeat_speed" 0/1/2 = slow/normal/fast) */
@@ -240,7 +245,7 @@ static void theme_defaults(Theme *t) {
 	sncpy(t->label[TAB_CONSOLES], "Consoles", 32);
 	sncpy(t->label[TAB_MUSIC], "Music", 32);
 	sncpy(t->label[TAB_VIDEOS], "Videos", 32);
-	sncpy(t->label[TAB_RETROARCH], "RetroArch", 32);
+	sncpy(t->label[TAB_RETROARCH], FW_MENU_TAB, 32);
 	sncpy(t->label[TAB_SETTINGS], "Settings", 32);
 }
 

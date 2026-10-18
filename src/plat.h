@@ -1,5 +1,6 @@
 /* Clove — hardware layer. plat_dev.c talks to the RG35XX (framebuffer,
- * evdev, sysfs); plat_host.c is a desktop stand-in used for testing. */
+ * evdev, sysfs); plat_knulli.c to Knulli handhelds (RG40XX H: SDL2, evdev,
+ * sysfs); plat_host.c is a desktop stand-in used for testing. */
 #ifndef CLOVE_PLAT_H
 #define CLOVE_PLAT_H
 
@@ -42,6 +43,8 @@ typedef struct {
 	char sd[256];   /* TF2 card: /mnt/SDCARD */
 	char cfw[256];  /* /mnt/mmc/CFW */
 	char clove[256];/* /mnt/mmc/CFW/clove */
+	char music[256];/* the Music folder, when not <mmc>/Music (Knulli: /userdata/music) */
+	char fonts[256];/* the menu fonts, when not GarlicOS's <cfw>/font */
 	int sd_present;
 	int mmc_is_tf2; /* TF2 boot: the TF2 card is mounted at /mnt/mmc */
 } Paths;
@@ -72,6 +75,15 @@ void plat_cpu_set(const char *governor, int max_khz, int min_khz);
 int plat_cpu_cur(void);
 
 void plat_describe(char *out, size_t n); /* diagnostics for the About page */
+
+/* Game controllers present (handheld layers with evdev): what an emulator
+ * front end passes on to say which pad is player 1, 2, ... */
+typedef struct {
+	char name[64], path[64];
+	char guid[33];  /* SDL-style GUID (bus, vendor, product, version) */
+	int buttons, hats, axes;
+} PadInfo;
+int plat_pads(PadInfo *out, int max); /* the handheld's own controls first */
 void plat_power(int reboot);           /* sync, then power off / reboot */
 
 #endif

@@ -33,7 +33,10 @@
 
 /* ------------------------------------------------------------------ files */
 
-void music_dir(char *out, size_t n) { snfmt(out, n, "%s/Music", g_paths.mmc); }
+void music_dir(char *out, size_t n) {
+	if (g_paths.music[0]) sncpy(out, g_paths.music, n);
+	else snfmt(out, n, "%s/Music", g_paths.mmc);
+}
 
 int music_kind(const char *path) {
 	const char *e = path_ext(path);

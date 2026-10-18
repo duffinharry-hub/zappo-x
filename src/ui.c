@@ -384,24 +384,31 @@ static void mark_settings(void) {
 
 /* ------------------------------------------------------------------ fonts */
 
+static const char *ui_font_dir(void) {
+	static char d[300];
+	if (g_paths.fonts[0]) return g_paths.fonts;
+	snfmt(d, sizeof d, "%s/font", g_paths.cfw);
+	return d;
+}
+
 static void load_fonts(void) {
 	font_clear_faces();
 	font_set_weight(g_set.font_weight);
 	char p[768];
 	snfmt(p, sizeof p, "%s/%s", g_theme.dir, g_theme.font_file);
 	if (font_add_face(p, 0) < 0) {
-		snfmt(p, sizeof p, "%s/font/%s", g_paths.cfw, g_theme.font_file);
+		snfmt(p, sizeof p, "%s/%s", ui_font_dir(), g_theme.font_file);
 		if (font_add_face(p, 0) < 0) {
 			static const char *fallbacks[] = {"FiraSansCondensed-Regular.ttf", "NotoSans-Regular.ttf", "Oswald-Regular.otf"};
 			for (int i = 0; i < ARRAY_LEN(fallbacks); i++) {
-				snfmt(p, sizeof p, "%s/font/%s", g_paths.cfw, fallbacks[i]);
+				snfmt(p, sizeof p, "%s/%s", ui_font_dir(), fallbacks[i]);
 				if (font_add_face(p, 0) >= 0) break;
 			}
 		}
 	}
 	static const char *extra[] = {"NotoSans-Regular.ttf", "NotoSansSC-Regular.otf", "NotoSansTC-Regular.otf", "NotoSansThai-Regular.ttf"};
 	for (int i = 0; i < ARRAY_LEN(extra); i++) {
-		snfmt(p, sizeof p, "%s/font/%s", g_paths.cfw, extra[i]);
+		snfmt(p, sizeof p, "%s/%s", ui_font_dir(), extra[i]);
 		font_add_face(p, 1);
 	}
 	F_TITLE = font_get(g_theme.font_title);
@@ -1184,8 +1191,13 @@ static void draw_list(View *v) {
 		} else {
 			char h[400], bl[200];
 			uint32_t bc;
+#ifdef ZAPPO_KNULLI
+			snfmt(h, sizeof h, "Copy games into the import folder on the card (Zappo sorts them), or straight into roms/%s.%s%s",
+			       g_sys[v->sys].dir,
+#else
 			snfmt(h, sizeof h, "Copy games into the Import folder on the %s card (Zappo sorts them), or straight into Roms/%s.%s%s",
 			       g_paths.mmc_is_tf2 ? "TF2" : "GarlicOS", g_sys[v->sys].code,
+#endif
 			       sys_bios_line(v->sys, bl, sizeof bl, &bc) ? "  " : "", sys_bios_line(v->sys, bl, sizeof bl, &bc) ? bl : "");
 			draw_empty_z("water", v->dir[0] ? "This folder is empty" : "No games yet", h);
 		}
@@ -1421,7 +1433,7 @@ static void add(int id, int kind, const char *label, const char *value, const ch
 }
 
 static const char *onoff(int v) { return v ? "On" : "Off"; }
-static const char *TAB_NAMES[TAB_COUNT] = {"Recent", "Favorites", "Consoles", "Music", "Videos", "RetroArch", "Settings"};
+static const char *TAB_NAMES[TAB_COUNT] = {"Recent", "Favorites", "Consoles", "Music", "Videos", FW_MENU_TAB, "Settings"};
 
 static int cpu_options(int *out, int max) {
 	int f[32];
@@ -1474,7 +1486,7 @@ static void menu_build(int menu, int arg) {
 		add(M_CONTROLS, MK_SUB, "Controls", "", "Confirm button, key repeat and an input tester.");
 		add(M_POWER, MK_SUB, "Screen & power", "", "Brightness, lock screen, battery, reboot and power off.");
 		add(M_PERF, MK_SUB, "Performance", "", "CPU speeds while browsing and while playing.");
-		add(M_ABOUT, MK_SUB, "About Zappo", "", "Version, device information and switching back to the GarlicOS menu.");
+		add(M_ABOUT, MK_SUB, "About Zappo", "", "Version, device information and switching back to the " FW_NAME " menu.");
 		break;
 	case M_APPEAR: {
 		static const char *HL[] = {"Carousel", "Grid", "List", "Shelf"};
@@ -1706,8 +1718,13 @@ static void menu_build(int menu, int arg) {
 		}
 		add(1, MK_ACTION, "Rescan games", "", "Sorts the Import folder, then re-reads every Roms folder.");
 		add(3, MK_ACTION, "Sort the Import folder now", "", "Moves games from Import into their console folders.");
+#ifdef ZAPPO_KNULLI
+		add(2, MK_ACTION, "Switch to Knulli's menu", "", "Zappo X steps aside and Knulli's own menu starts instead.");
+		add(0, MK_INFO, "Runs on Knulli, by the Knulli team (a Batocera fork).", "", NULL);
+#else
 		add(2, MK_ACTION, "Switch to the GarlicOS menu", "", "Clove steps aside. Run \"Switch to Clove\" from GarlicOS's Apps to come back.");
 		add(0, MK_INFO, "Runs on GarlicOS by Black-Seraph.", "", NULL);
+#endif
 		break;
 	}
 	}
@@ -2058,10 +2075,10 @@ static void menu_change(View *mv, int id, int dir) {
 			else toast(id == 1 ? "Games rescanned" : "Import folder is empty");
 		}
 		if (id == 2) {
-			open_overlay(OV_CONFIRM, "Use the GarlicOS menu instead of Zappo?");
+			open_overlay(OV_CONFIRM, "Use the " FW_NAME " menu instead of Zappo?");
 			ov.confirm_action = 1002;
 			ov_add("Cancel", OA_CANCEL);
-			ov_add("Switch to GarlicOS", OA_YES);
+			ov_add("Switch to " FW_NAME, OA_YES);
 		}
 		return;
 	}
@@ -2195,7 +2212,7 @@ static void draw_loading(void) {
 	} else {
 		y += 160;
 	}
-	int lines = text_draw_wrap(F_TITLE, 40, y, SCREEN_W - 80, 2, launch_name[0] ? launch_name : "RetroArch", g_theme.text, 1);
+	int lines = text_draw_wrap(F_TITLE, 40, y, SCREEN_W - 80, 2, launch_name[0] ? launch_name : FW_MENU_TAB, g_theme.text, 1);
 	text_draw_fit(F_SMALL, 40, y + font_height(F_TITLE) * lines + 8, SCREEN_W - 80, "Starting\xE2\x80\xA6", g_theme.text_dim, 1);
 	/* videos: the player's buttons, shown while it opens */
 	if (launch_sys >= 0 && strstr(data_sys_core(launch_sys), "ffmpeg")) {
@@ -2388,8 +2405,8 @@ void ui_render(void) {
 			gfx_shadow(x, y + 4, w, hh, g_theme.radius, 10, g_theme.shadow);
 			gfx_rrect(x, y, w, hh, g_theme.radius, g_theme.surface);
 			gfx_rrect_stroke(x - 3, y - 3, w + 6, hh + 6, g_theme.radius + 3, 3, g_theme.accent);
-			text_draw_fit(F_TITLE, x, y + 50, w, "RetroArch", g_theme.text, 1);
-			text_draw_wrap(F_SMALL, x + 24, y + 100, w - 48, 3, "Open RetroArch's own menu to change cores, shaders, hotkeys and more.", g_theme.text_dim, 1);
+			text_draw_fit(F_TITLE, x, y + 50, w, FW_MENU_TAB, g_theme.text, 1);
+			text_draw_wrap(F_SMALL, x + 24, y + 100, w - 48, 3, FW_MENU_TEXT, g_theme.text_dim, 1);
 			h[nh++] = (Hint){confirm_btn(), "Open"};
 		} else if (tab == TAB_SETTINGS) {
 			draw_menu(&v_settings, 0);
@@ -2792,7 +2809,7 @@ static void handle_button(int b, int repeat) {
 		else if (tab == TAB_RETROARCH) {
 			if (b == B_A) {
 				if (data_launch_retroarch() == 0) { launch_name[0] = 0; launch_art[0] = 0; launch_sys = -1; save_now(); g_state = UI_LAUNCH; dirty = 1; }
-				else toast("Could not start RetroArch");
+				else toast("Could not start " FW_MENU_TAB);
 			}
 		} else if (tab == TAB_SETTINGS) {
 			menu_button(&v_settings, b);
@@ -2881,7 +2898,7 @@ void ui_event(const InputEvent *ev) {
 	if (ev->pressed && ev->raw_type == 1) {
 		if (b >= 0 && b < B_COUNT) mapped_presses++;
 		else if (++unmapped_presses >= 8 && mapped_presses == 0 && top()->type != V_INPUT) {
-			LOG("8 button presses but none recognised: handing over to the GarlicOS menu (see input.json)");
+			LOG("8 button presses but none recognised: handing over to the " FW_NAME " menu (see input.json)");
 			g_state = UI_FALLBACK;
 			return;
 		}

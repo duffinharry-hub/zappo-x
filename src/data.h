@@ -17,6 +17,9 @@ typedef struct {
 	int on_tf1, on_tf2; /* folder exists on each card */
 	int known;
 	int is_import;      /* the Import folder, shown as a console while it has things to sort */
+	char dir[32];       /* folder name when it isn't the code (Knulli: "gba" under /userdata/roms) */
+	char exts[200];     /* game file extensions, " .gba .zip" (Knulli lists them; empty = any) */
+	char *emus;         /* Knulli: "libretro/mgba,libretro/gpsp,..." the default first */
 } System;
 
 typedef struct {
@@ -72,6 +75,10 @@ extern int data_start_over;
  * the end (the next episodes); cleared after each launch. */
 extern char data_next_video[2][1024];
 int data_launch_retroarch(void);
+
+/* Where a console's games and the BIOS files go on the main card (Import uses these) */
+void data_sys_dir(int sys, char *out, size_t n);
+void data_bios_dir(char *out, size_t n);
 
 /* Arcade set names from GarlicOS's CFW/config/mame.csv */
 int data_is_arcade_set(const char *stem);

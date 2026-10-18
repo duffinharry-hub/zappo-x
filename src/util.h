@@ -5,7 +5,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef ZAPPO_KNULLI
+#define CLOVE_VERSION "X 0.1"
+#define FW_NAME "Knulli"
+/* the tab that opens the firmware's own menu */
+#define FW_MENU_TAB "Knulli"
+#define FW_MENU_TEXT "Open Knulli's own menu for system settings, updates, scraping and everything Zappo X doesn't do yet."
+#else
 #define CLOVE_VERSION "0.3.5"
+#define FW_NAME "GarlicOS"
+#define FW_MENU_TAB "RetroArch"
+#define FW_MENU_TEXT "Open RetroArch's own menu to change cores, shaders, hotkeys and more."
+#endif
 
 #define ARRAY_LEN(a) ((int)(sizeof(a) / sizeof((a)[0])))
 #define CLAMP(v, lo, hi) ((v) < (lo) ? (lo) : ((v) > (hi) ? (hi) : (v)))

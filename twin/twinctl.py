@@ -13,6 +13,7 @@
   twinctl.py bt status           the pretend Bluetooth devices and how they're connected
   twinctl.py audio OUT.wav [S]   the last S seconds (default 10) of what the twin played
   twinctl.py level               how loud the twin is right now (0 = silent)
+  twinctl.py put LOCAL REMOTE    copy a file into the twin (over its network)
   twinctl.py qmp COMMAND [JSON]  any QEMU monitor command
   twinctl.py quit                switch the twin off
 """
@@ -77,6 +78,32 @@ class Agent:
         return a["rc"], a["out"]
 
 
+def put(local, remote):
+    """copies a file into the twin: served from here once, fetched by the twin
+    through its Wi-Fi and router (the host is 10.0.2.2 from inside)"""
+    import http.server
+    import threading
+    data = open(local, "rb").read()
+
+    class One(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), One)
+    threading.Thread(target=srv.handle_request, daemon=True).start()
+    q = remote.replace("'", "'\\''")
+    rc, out = Agent().sh("mkdir -p \"$(dirname '%s')\" && wget -q -O '%s' http://10.0.2.2:%d/f && ls -l '%s'"
+                         % (q, q, srv.server_port, q), 300)
+    srv.server_close()
+    return rc, out
+
+
 def shot(out):
     from PIL import Image
     tmp = tempfile.mktemp(suffix=".ppm", dir=RUN)
@@ -135,6 +162,10 @@ if __name__ == "__main__":
     elif a[0] in ("audio", "level"):
         import audiorec
         audiorec.main(["save"] + a[1:] if a[0] == "audio" else ["level"])
+    elif a[0] == "put":
+        rc, out = put(a[1], a[2])
+        sys.stdout.write(out)
+        sys.exit(rc)
     elif a[0] == "qmp":
         print(json.dumps(QMP().cmd(a[1], **(json.loads(a[2]) if len(a) > 2 else {})), indent=1))
     elif a[0] == "quit":
