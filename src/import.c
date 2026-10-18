@@ -50,6 +50,7 @@ static const struct { const char *ext, *code; } EXT[] = {
 	{"d88", "PCEIGHTYEIGHT"}, {"88d", "PCEIGHTYEIGHT"}, {"t88", "PCEIGHTYEIGHT"},
 	{"fdi", "PCNINETYEIGHT"}, {"hdi", "PCNINETYEIGHT"}, {"nhd", "PCNINETYEIGHT"},
 	{"p8", "PICO"}, {"tic", "TIC"}, {"pbp", "PS"},
+	{"nds", "NDS"}, {"z64", "N64"}, {"n64", "N64"}, {"v64", "N64"}, {"cso", "PSP"}, {"gdi", "DC"}, {"cdi", "DC"},
 	{"mp4", "VIDEOS"}, {"mkv", "VIDEOS"}, {"avi", "VIDEOS"},
 	{"world", "BLOCKBOX"},
 };

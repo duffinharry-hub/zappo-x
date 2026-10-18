@@ -1829,14 +1829,18 @@ static void menu_build(int menu, int arg) {
 		char g[300];
 		int guess = import_guess(pick_path, dir_exists(pick_path));
 		if (guess >= 0) { snfmt(g, sizeof g, "Suggested: %s", data_sys_name(guess)); add(guess, MK_ACTION, g, "", "Zappo's best guess from the file."); }
-		add(IMPORT_TO_BIOS, MK_ACTION, "BIOS folder", "", "For BIOS / firmware files the emulators need.");
-		add(IMPORT_TO_MUSIC, MK_ACTION, "Music folder", "", "Songs and albums for the Music tab.");
+		/* the BIOS and Music folders come first only when that's the guess:
+		 * otherwise a quick A would put a game where no console finds it */
+		if (guess == IMPORT_TO_BIOS) add(IMPORT_TO_BIOS, MK_ACTION, "Suggested: BIOS folder", "", "For BIOS / firmware files the emulators need.");
+		if (guess == IMPORT_TO_MUSIC) add(IMPORT_TO_MUSIC, MK_ACTION, "Suggested: Music folder", "", "Songs and albums for the Music tab.");
 		for (int i = 0; i < pick_n; i++) {
 			int s = pick_vis[i];
 			char cnt[32];
 			sys_count_label(s, cnt, sizeof cnt);
 			add(s, MK_ACTION, data_sys_name(s), cnt, NULL);
 		}
+		if (guess != IMPORT_TO_BIOS) add(IMPORT_TO_BIOS, MK_ACTION, "BIOS folder", "", "For BIOS / firmware files the emulators need.");
+		if (guess != IMPORT_TO_MUSIC) add(IMPORT_TO_MUSIC, MK_ACTION, "Music folder", "", "Songs and albums for the Music tab.");
 		break;
 	}
 	case M_CLOCK: {
