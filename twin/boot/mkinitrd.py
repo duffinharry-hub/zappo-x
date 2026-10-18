@@ -2,7 +2,8 @@
 second archive after it holding the twin's /init and its helper files.  The
 kernel unpacks both in order, so the twin's /init replaces Knulli's.
 
-usage: mkinitrd.py KNULLI_RAMDISK.gz INIT TWIN_ROOT_DIR OUT.cpio.gz"""
+usage: mkinitrd.py KNULLI_RAMDISK.gz INIT OUT.cpio.gz ROOT_DIR [ROOT_DIR...]
+(every ROOT_DIR is laid over Knulli's system: twin/root, the graphics pack...)"""
 import gzip
 import os
 import stat
@@ -44,9 +45,17 @@ def tree(root, prefix):
     return ents
 
 
-def main(knulli, init, twin_root, out):
+def main(knulli, init, out, *roots):
     ents = [("init", stat.S_IFREG | 0o755, open(init, "rb").read())]
-    ents += [("twin", stat.S_IFDIR | 0o755, b"")] + tree(twin_root, "twin/root")
+    ents += [("twin", stat.S_IFDIR | 0o755, b"")]
+    seen = {}
+    for r in roots:
+        for e in tree(r, "twin/root"):
+            if e[0] in seen:
+                ents[seen[e[0]]] = e        # a later root wins
+            else:
+                seen[e[0]] = len(ents)
+                ents.append(e)
     with open(out, "wb") as f:
         f.write(open(knulli, "rb").read())          # Knulli's ramdisk, as shipped
         f.write(gzip.compress(newc(ents), 9))       # the twin's layer
@@ -54,4 +63,4 @@ def main(knulli, init, twin_root, out):
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:5])
+    main(*sys.argv[1:])

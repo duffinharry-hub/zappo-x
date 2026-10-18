@@ -35,7 +35,7 @@ mount -t overlay overlay -o rw,lowerdir=/overlay_root/base,upperdir=/overlay_roo
 
 # the twin's helpers, into the writable layer
 if [ -d /twin/root ]; then
-    cp -a /twin/root/. /new_root/
+    cp -af /twin/root/. /new_root/
     echo "twin init: twin helpers added"
 fi
 

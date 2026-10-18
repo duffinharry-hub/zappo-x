@@ -9,7 +9,7 @@ the RG40XX H would start).
 First time, in Termux:
 
     pkg install -y git clang make
-    git clone https://github.com/duffinharry-hub/zappo-x ~/zappo-x
+    git clone https://github.com/OWNER/zappo-x ~/zappo-x
     sh ~/zappo-x/tablet/install.sh
     sh ~/zappo-x/tablet/run.sh
 

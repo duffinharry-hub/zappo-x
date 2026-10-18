@@ -1,22 +1,3 @@
-# Zappo X
-
-**Zappo X** is the next Zappo, for the **Anbernic RG40XX H** and the rest of the Allwinner H700
-family (RG35XX Plus/H/SP/2024/Pro, RG40XX V, RG28XX, RG34XX, RG CubeXX), on top of Knulli:
-the same menus pushed further - Wi-Fi ("Send to Zappo" from your phone), Bluetooth controllers and
-headphones, the RGB stick lights following the section you're in, an animated Zappo behind each
-section, HDMI, RetroAchievements - with DS and PSP as the top-end consoles. Work in progress.
-
-- **Try it on a tablet or phone now:** [`tablet/`](tablet/README.md) runs Zappo X natively on
-  Android through Termux, with the screen in the browser (touch, Bluetooth controllers, music,
-  stick lights, a speed test).
-- **Device twin:** [`twin/`](twin/) is an emulated RG40XX H (Knulli on QEMU, with stand-ins for the
-  stick-light controller, battery and buttons) used to build and test before the real one arrives.
-- **Browser build:** `make web` builds Zappo to WebAssembly; `web/` is the page around it.
-
-Zappo 0.3.5 for the original RG35XX (below) is finished; its source is this same tree.
-
----
-
 # Zappo
 
 An open-source launcher for the **original Anbernic RG35XX (2022 model)** running **GarlicOS**, with a music player, a Videos tab, folder-drop imports and a Windows kit.

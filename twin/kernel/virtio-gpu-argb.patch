@@ -1,0 +1,12 @@
+diff --git a/drivers/gpu/drm/virtio/virtgpu_plane.c b/drivers/gpu/drm/virtio/virtgpu_plane.c
+index 29e4b458a..455e320de 100644
+--- a/drivers/gpu/drm/virtio/virtgpu_plane.c
++++ b/drivers/gpu/drm/virtio/virtgpu_plane.c
+@@ -35,6 +35,7 @@
+ 
+ static const uint32_t virtio_gpu_formats[] = {
+ 	DRM_FORMAT_HOST_XRGB8888,
++	DRM_FORMAT_HOST_ARGB8888, /* Zappo X twin: SDL's KMS screens are ARGB (alpha ignored) */
+ };
+ 
+ static const uint32_t virtio_gpu_cursor_formats[] = {
