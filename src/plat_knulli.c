@@ -13,6 +13,7 @@
 #include "util.h"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_syswm.h>
 #include <dirent.h>
 #include <ucontext.h>
 #include <errno.h>
@@ -22,7 +23,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include "plat_evdev.inc"
@@ -36,10 +39,20 @@ static SDL_Window *win;
 static SDL_Renderer *ren;
 static SDL_Texture *tex;
 static int vsync;
+static int drm_fd = -1; /* SDL's KMS device (the twin), to take the screen over */
 static uint32_t canvas[SCREEN_W * SCREEN_H];
 static char video_desc[96] = "no screen";
 
+static void sdl_log(void *ud, int category, SDL_LogPriority prio, const char *msg) {
+	LOG("SDL: %s", msg);
+}
+
 static int screen_open(void) {
+	/* SDL's own messages in the log, when asked for (ZAPPO_SDL_LOG=1) */
+	if (getenv("ZAPPO_SDL_LOG")) {
+		SDL_LogSetAllPriority(SDL_LOG_PRIORITY_VERBOSE);
+		SDL_LogSetOutputFunction(sdl_log, NULL);
+	}
 	/* KMS/DRM on the twin, Mali on the handheld: SDL picks what it was built for */
 	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
 		LOG("SDL_Init: %s", SDL_GetError());
@@ -70,6 +83,9 @@ static int screen_open(void) {
 	SDL_GetRendererInfo(ren, &ri);
 	SDL_GetWindowSize(win, &w, &h);
 	vsync = (ri.flags & SDL_RENDERER_PRESENTVSYNC) != 0;
+	SDL_SysWMinfo wm;
+	SDL_VERSION(&wm.version);
+	if (SDL_GetWindowWMInfo(win, &wm) && wm.subsystem == SDL_SYSWM_KMSDRM) drm_fd = wm.info.kmsdrm.drm_fd;
 	snfmt(video_desc, sizeof video_desc, "%dx%d, %s on %s%s", w, h, ri.name,
 	      SDL_GetCurrentVideoDriver(), vsync ? ", vsync" : "");
 	LOG("screen: %s", video_desc);
@@ -87,6 +103,15 @@ void plat_present(void) {
 	if (frames_presented == 1)
 		LOG("first picture %llu ms after start (screen ready after %llu ms)",
 		    (unsigned long long)(now_ms() - t_start), (unsigned long long)(t_screen - t_start));
+	/* KMS: if the program before (a game, Knulli's menu) was still letting go
+	 * of the screen when this one started, SDL isn't its master and nothing
+	 * shows; take it over as soon as it is free (harmless when already ours) */
+	if (drm_fd >= 0 && now_ms() - t_start < 30000) {
+		static int was_master = -1;
+		int m = ioctl(drm_fd, 0x641e /* DRM_IOCTL_SET_MASTER */, 0) == 0;
+		if (m != was_master) LOG("screen: %s", m ? "ours" : "still held by another program");
+		was_master = m;
+	}
 	SDL_UpdateTexture(tex, NULL, canvas, SCREEN_W * 4);
 	/* The first picture goes out three times: after a game, the screen can be
 	 * left switched on with nothing to show, and SDL's KMS driver only sets
@@ -268,6 +293,59 @@ void plat_power(int reboot) {
 	/* through init, so Knulli's services save their state (Bluetooth pairings, ...) */
 	if (system(reboot ? "reboot" : "poweroff") != 0) LOG("power command failed");
 	for (;;) sleep(5);
+}
+
+/* ------------------------------------------------------- films: mpv remote */
+
+/* Knulli's mpv plays the films; its own gamepad support (through SDL) blanks
+ * its picture, so the handheld's buttons reach it this way instead: this runs
+ * beside mpv ("zappo-x --mpv-remote SOCKET"), reads the buttons and sends mpv
+ * commands over its IPC socket. Ends when mpv does. */
+int plat_mpv_remote(const char *sock_path) {
+	struct sockaddr_un sa;
+	memset(&sa, 0, sizeof sa);
+	sa.sun_family = AF_UNIX;
+	sncpy(sa.sun_path, sock_path, sizeof sa.sun_path);
+	int fd = -1;
+	for (int i = 0; i < 200 && fd < 0; i++) {	/* mpv takes a moment to open it */
+		fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (connect(fd, (struct sockaddr *)&sa, sizeof sa) != 0) { close(fd); fd = -1; usleep(100000); }
+	}
+	if (fd < 0) return 1;
+	open_inputs();
+	input_map_defaults(&imap);
+	static const struct { int b; const char *cmd; } MAP[] = {
+		{B_A, "[\"cycle\",\"pause\"]"}, {B_START, "[\"cycle\",\"pause\"]"},
+		{B_B, "[\"quit-watch-later\"]"}, {B_MENU, "[\"quit-watch-later\"]"},
+		{B_SELECT, "[\"show-progress\"]"},
+		{B_LEFT, "[\"seek\",-10]"}, {B_RIGHT, "[\"seek\",10]"},
+		{B_UP, "[\"seek\",60]"}, {B_DOWN, "[\"seek\",-60]"},
+		{B_L1, "[\"playlist-prev\"]"}, {B_R1, "[\"playlist-next\"]"},
+		{B_Y, "[\"cycle\",\"sub\"]"}, {B_X, "[\"cycle\",\"audio\"]"},
+	};
+	for (;;) {
+		struct pollfd pfd[MAX_DEV + 1];
+		int n = 0;
+		pfd[n].fd = fd; pfd[n].events = POLLIN; n++;
+		for (int i = 0; i < ndevs; i++) { pfd[n].fd = devs[i].fd; pfd[n].events = POLLIN; n++; }
+		if (poll(pfd, (nfds_t)n, 1000) < 0) continue;
+		if (pfd[0].revents & (POLLIN | POLLHUP | POLLERR)) {
+			char junk[4096];	/* mpv's own messages: only its going away matters */
+			if (read(fd, junk, sizeof junk) <= 0) break;
+		}
+		InputEvent ev;
+		while (plat_poll(&ev)) {
+			if (!ev.pressed || ev.button < 0) continue;
+			for (int k = 0; k < ARRAY_LEN(MAP); k++)
+				if (MAP[k].b == ev.button) {
+					char msg[128];
+					int l = snfmt(msg, sizeof msg, "{\"command\":%s}\n", MAP[k].cmd);
+					if (write(fd, msg, (size_t)l) < 0) return 0;
+				}
+		}
+	}
+	close(fd);
+	return 0;
 }
 
 /* -------------------------------------------------------------- lifecycle */

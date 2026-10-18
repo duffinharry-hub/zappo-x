@@ -10,6 +10,10 @@
  * RetroArch configuration all apply. */
 
 #define KNULLI_SYSTEMS "/usr/share/emulationstation/es_systems.cfg"
+#define KNULLI_VIDEO_EXTS ".mp4 .mkv .avi .mov .webm .m4v .mpg .mpeg .wmv .flv .ts .ogv"
+/* the port that takes Knulli's menu back to Zappo X (knulli/install.sh puts
+ * it in roms/ports): not a game, so not listed in Zappo X itself */
+#define KNULLI_BACK_PORT "Zappo X.sh"
 
 static const struct { const char *dir, *code; } KNULLI_CODES[] = {
 	{"gb", "GB"}, {"gbc", "GBC"}, {"gba", "GBA"}, {"sgb", "SGB"}, {"nds", "NDS"},
@@ -145,6 +149,7 @@ static void knulli_init_systems(void) {
 }
 
 static int knulli_ext_ok(const char *exts, const char *name) {
+	if (!strcmp(name, KNULLI_BACK_PORT)) return 0;
 	if (!exts || !*exts) return 1;
 	const char *ext = path_ext(name);
 	if (!*ext) return 0;
@@ -234,10 +239,41 @@ static void knulli_pad_args(char *out, size_t n) {
 	}
 }
 
+/* Films play in Knulli's mpv (through SDL, like everything on Knulli's
+ * screen). The handheld's buttons reach it through zappo-x --mpv-remote: A
+ * pause, B back, left/right 10 s, up/down a minute, L1/R1 the previous/next
+ * film, SELECT how far. It remembers where each one stopped. The next
+ * episodes queue up behind. */
+static int knulli_play_video(const Entry *e, char *err, size_t errn) {
+	char body[6000], q[1200];
+	int len = snfmt(body, sizeof body,
+	      "#!/bin/sh\n# Written by Zappo %s\n"
+	      "D=%s\n"
+	      "S=/tmp/zappo-x-mpv.sock\n"
+	      "rm -f $S\n"
+	      "$D/zappo-x --mpv-remote $S &\n"	/* the buttons (see plat_mpv_remote) */
+	      "mpv --vo=sdl --fs --really-quiet --input-ipc-server=$S --input-default-bindings=no "
+	      "--input-conf=$D/mpv-input.conf --save-position-on-quit --watch-later-dir=$D/watch-later "
+	      "--osd-font-size=28 --osd-duration=1500",
+	      CLOVE_VERSION, g_paths.clove);
+	shell_squote(e->path, q, sizeof q);
+	len += snfmt(body + len, sizeof body - (size_t)len, " '%s'", q);
+	for (int k = 0; k < 2 && data_next_video[k][0]; k++) {
+		shell_squote(data_next_video[k], q, sizeof q);
+		len += snfmt(body + len, sizeof body - (size_t)len, " '%s'", q);
+	}
+	snfmt(body + len, sizeof body - (size_t)len, "\n");
+	data_next_video[0][0] = data_next_video[1][0] = 0;
+	if (write_command(body) != 0) { snfmt(err, errn, "Could not write the start command"); return -1; }
+	recents_add(e->path);
+	return 0;
+}
+
 static int knulli_launch(const Entry *e, char *err, size_t errn) {
 	const System *s = &g_sys[e->sys];
+	if (!strcmp(s->code, "VIDEOS")) return knulli_play_video(e, err, errn);
 	if (!s->dir[0]) { snfmt(err, errn, "Knulli has no emulator for this"); return -1; }
-	char qrom[1200], qname[160], pads[1024], force[160] = "", body[4096];
+	char qrom[1200], qname[160], pads[1024], force[160] = "", resume[64] = "", body[4096];
 	shell_squote(e->path, qrom, sizeof qrom);
 	shell_squote(s->name, qname, sizeof qname);
 	knulli_pad_args(pads, sizeof pads);
@@ -250,10 +286,22 @@ static int knulli_launch(const Entry *e, char *err, size_t errn) {
 		if (slash) { *slash = 0; snfmt(force, sizeof force, "-emulator %s -core %s ", emu, slash + 1); }
 		else snfmt(force, sizeof force, "-emulator %s ", emu);
 	}
+	/* Continue where you left off: RetroArch saves a state on closing and
+	 * loads it next time. "Start over" puts the old one aside (not deleted)
+	 * so this start begins fresh. */
+	snfmt(resume, sizeof resume, "-autosave %d ", g_set.resume_games ? 1 : 0);
+	if (data_start_over) {
+		char stem[256], sp[1200], aside[1300];
+		path_stem(e->path, stem, sizeof stem);
+		snfmt(sp, sizeof sp, "%s/saves/%s/%s.state.auto", g_paths.mmc, s->dir, stem);
+		snfmt(aside, sizeof aside, "%s.before-start-over", sp);
+		if (file_exists(sp)) rename(sp, aside);
+		data_start_over = 0;
+	}
 	snfmt(body, sizeof body,
 	      "#!/bin/sh\n# Written by Zappo %s\n"
-	      "emulatorlauncher %s-system %s -rom '%s' -systemname '%s' %s-gameinfoxml /dev/null\n",
-	      CLOVE_VERSION, pads, s->dir, qrom, qname, force);
+	      "emulatorlauncher %s-system %s -rom '%s' -systemname '%s' %s%s-gameinfoxml /dev/null\n",
+	      CLOVE_VERSION, pads, s->dir, qrom, qname, force, resume);
 	if (write_command(body) != 0) { snfmt(err, errn, "Could not write the start command"); return -1; }
 	recents_add(e->path);
 	return 0;

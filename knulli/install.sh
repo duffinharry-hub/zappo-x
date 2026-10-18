@@ -13,7 +13,7 @@ if [ -d "$D" ]; then
 	mv "$D" "$OLD"
 	echo "previous Zappo X moved to $OLD"
 fi
-mkdir -p "$D" /userdata/system/services /userdata/music /userdata/import
+mkdir -p "$D" /userdata/system/services /userdata/music /userdata/import /userdata/videos /userdata/roms/ports/images
 cp -a "$HERE/zappo-x/." "$D/"
 if [ -n "$OLD" ]; then
 	for f in settings.json recents.json favorites.lpl input.json systems.json play-counts.tsv music-state.tsv themes; do
@@ -21,6 +21,10 @@ if [ -n "$OLD" ]; then
 	done
 fi
 cp "$HERE/zappox" /userdata/system/services/zappox
+# the way back from Knulli's menu: Ports > Zappo X
+cp "$HERE/Zappo X.sh" "/userdata/roms/ports/Zappo X.sh"
+chmod +x "/userdata/roms/ports/Zappo X.sh"
+[ -f "$D/zappos/electric-m.png" ] && cp "$D/zappos/electric-m.png" "/userdata/roms/ports/images/Zappo X-image.png"
 chmod +x "$D/zappo-x" "$D/zappo-x.sh" /userdata/system/services/zappox
 batocera-settings-set system.es.atstartup 0
 batocera-services enable zappox >/dev/null

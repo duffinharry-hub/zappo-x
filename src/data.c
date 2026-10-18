@@ -205,6 +205,13 @@ void data_init(void) {
 	knulli_init_systems();
 	add_system("IMPORT", "");
 	sncpy(g_sys[data_sys_index("IMPORT")].dir, "import", sizeof g_sys[0].dir);
+	/* films: /userdata/videos, played by Knulli's mpv */
+	add_system("VIDEOS", "mpv");
+	{
+		System *v = &g_sys[data_sys_index("VIDEOS")];
+		sncpy(v->dir, "videos", sizeof v->dir);
+		sncpy(v->exts, KNULLI_VIDEO_EXTS, sizeof v->exts);
+	}
 	snfmt(p, sizeof p, "%s/systems.json", g_paths.clove);
 	load_json_object(p, each_extra);
 	fav_load();
@@ -491,6 +498,7 @@ static void free_raw(RawEnt *v, int n) {
 static void sys_dir_on(int sys, const char *card, char *out, size_t n) {
 #ifdef ZAPPO_KNULLI
 	if (g_sys[sys].is_import) snfmt(out, n, "%s/import", card);
+	else if (!strcmp(g_sys[sys].code, "VIDEOS")) snfmt(out, n, "%s/videos", card);
 	else snfmt(out, n, "%s/roms/%s", card, g_sys[sys].dir[0] ? g_sys[sys].dir : g_sys[sys].code);
 	return;
 #endif
@@ -1130,10 +1138,33 @@ int data_resume_point(const Entry *e, char *thumb, size_t n, time_t *when) {
 	if (thumb && n) thumb[0] = 0;
 	if (when) *when = 0;
 	if (!e || e->is_dir || !g_set.resume_games) return 0;
-#ifdef ZAPPO_KNULLI
-	return 0; /* (Knulli's saved states: later) */
-#endif
 	uint64_t now = plat_ticks();
+#ifdef ZAPPO_KNULLI
+	/* Knulli's RetroArch keeps the state it saves on closing in
+	 * /userdata/saves/<system>/<game>.state.auto (picture: .state.auto.png) */
+	if (strcmp(last_path, e->path) || now - last_at > 5000) {
+		sncpy(last_path, e->path, sizeof last_path);
+		last_at = now;
+		last_r = 0;
+		last_thumb[0] = 0;
+		last_when = 0;
+		char sp[1200], stem[256];
+		path_stem(e->path, stem, sizeof stem);
+		if (e->sys >= 0) {
+			snfmt(sp, sizeof sp, "%s/saves/%s/%s.state.auto", g_paths.mmc, g_sys[e->sys].dir, stem);
+			struct stat st;
+			if (stat(sp, &st) == 0 && S_ISREG(st.st_mode)) {
+				last_r = 1;
+				last_when = st.st_mtime;
+				snfmt(last_thumb, sizeof last_thumb, "%s.png", sp);
+				if (!file_exists(last_thumb)) last_thumb[0] = 0;
+			}
+		}
+	}
+	if (thumb && n) sncpy(thumb, last_thumb, n);
+	if (when) *when = last_when;
+	return last_r;
+#endif
 	if (strcmp(last_path, e->path) || now - last_at > 5000) {
 		sncpy(last_path, e->path, sizeof last_path);
 		last_at = now;
@@ -1297,8 +1328,9 @@ int data_launch(const Entry *e, char *err, size_t errn) {
 	if (sys < 0) { snfmt(err, errn, "Unknown system for this game"); return -1; }
 	if (g_sys[sys].is_import) { snfmt(err, errn, "Choose a console for this game first"); return -1; }
 #ifdef ZAPPO_KNULLI
+	int r = knulli_launch(e, err, errn);
 	data_next_video[0][0] = data_next_video[1][0] = 0;
-	return knulli_launch(e, err, errn);
+	return r;
 #endif
 	const char *core = data_sys_core(sys);
 	if (!*core) { snfmt(err, errn, "No emulator set for %s", g_sys[sys].code); return -1; }

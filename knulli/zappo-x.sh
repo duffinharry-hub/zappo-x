@@ -16,17 +16,33 @@ CMD=/tmp/zappo-x-command.sh
 
 knulli_menu() {
 	echo "$(date) Knulli's menu ($1)" >> $RUNS
+	rm -f /var/run/zappo-x.pid   # (Zappo X isn't running any more: see "Zappo X.sh" in Ports)
 	exec emulationstation-standalone
 }
 
 echo $$ > /var/run/zappo-x.pid
 trap 'rm -f /var/run/zappo-x.pid; exit 0' TERM INT
+# Wait (up to 5 s) until nothing else has the screen: a program that has
+# just ended can still be letting go of it.
+screen_free() {
+	n=0
+	while [ $n -lt 25 ]; do
+		busy=
+		for f in /proc/[0-9]*/fd/*; do
+			case "$(readlink "$f" 2>/dev/null)" in /dev/dri/card*) busy=1; break ;; esac
+		done
+		[ -z "$busy" ] && return 0
+		sleep 0.2; n=$((n + 1))
+	done
+}
+
 # something left from before a restart would start by itself: not wanted
 rm -f "$D/command.sh"
 echo "$(date) start" >> $RUNS
 fails=0
 while :; do
 	[ -f "$D/disabled" ] && knulli_menu "switched in Settings"
+	screen_free
 	t0=$(cut -d. -f1 /proc/uptime)
 	"$D/zappo-x"
 	rc=$?

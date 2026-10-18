@@ -84,6 +84,10 @@ typedef struct {
 	int buttons, hats, axes;
 } PadInfo;
 int plat_pads(PadInfo *out, int max); /* the handheld's own controls first */
+
+#ifdef ZAPPO_KNULLI
+int plat_mpv_remote(const char *sock_path); /* the buttons for Knulli's mpv (films) */
+#endif
 void plat_power(int reboot);           /* sync, then power off / reboot */
 
 #endif

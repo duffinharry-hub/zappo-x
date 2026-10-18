@@ -3,7 +3,7 @@
 # Installed as /userdata/system/services/zappox and switched on with
 # "batocera-services enable zappox" (install.sh does both).
 P=/var/run/zappo-x.pid   # the start loop (zappo-x.sh writes it)
-running() { [ -f $P ] && kill -0 "$(cat $P)" 2>/dev/null; }
+running() { [ -f $P ] && kill -0 "$(cat $P 2>/dev/null)" 2>/dev/null; }
 case "$1" in
 	start)
 		running && exit 0

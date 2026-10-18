@@ -124,6 +124,9 @@ int app_end(void) {
 int main(int argc, char **argv) {
 	(void)argc;
 	(void)argv;
+#ifdef ZAPPO_KNULLI
+	if (argc > 2 && strcmp(argv[1], "--mpv-remote") == 0) return plat_mpv_remote(argv[2]);
+#endif
 	int r = app_start();
 	if (r) return r;
 	while (app_frame(1)) {}
