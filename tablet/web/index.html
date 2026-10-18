@@ -837,23 +837,139 @@ window.ZAPPO_NATIVE = true;
     else if (wentAway && ovlAction) setTimeout(() => ovlAction && ovlAction(), 300);	/* back from the game */
   });
 
+  /* the tablet's graphics chip (WebGL) puts the picture together: the
+     whole picture, or - with the moving backgrounds - the background, the
+     particles and the see-through menu as layers, like the handheld's GPU */
+  class GLScreen {
+    constructor(cv) {
+      const gl = cv.getContext("webgl", { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, powerPreference: "high-performance" });
+      if (!gl) throw new Error("no WebGL");
+      this.gl = gl;
+      const sh = (type, src) => { const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+      const pr = gl.createProgram();
+      gl.attachShader(pr, sh(gl.VERTEX_SHADER, "attribute vec2 p;attribute vec2 t;attribute vec4 c;varying vec2 vt;varying vec4 vc;" +
+        "void main(){vt=t;vc=c;gl_Position=vec4(p.x/320.0-1.0,1.0-p.y/240.0,0.0,1.0);}"));
+      gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, "precision mediump float;uniform sampler2D s;uniform float w;varying vec2 vt;varying vec4 vc;" +
+        "void main(){vec4 x=texture2D(s,vt);if(w>0.5)x=x.bgra;gl_FragColor=x*vc;}"));
+      gl.linkProgram(pr);
+      if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+      gl.useProgram(pr);
+      this.uW = gl.getUniformLocation(pr, "w");
+      const MAXQ = 300;
+      this.v = new Float32Array(MAXQ * 32);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, this.v.byteLength, gl.DYNAMIC_DRAW);
+      const idx = new Uint16Array(MAXQ * 6);
+      for (let i = 0; i < MAXQ; i++) idx.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+      [["p", 2, 0], ["t", 2, 8], ["c", 4, 16]].forEach(([n, k, off]) => { const l = gl.getAttribLocation(pr, n); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, k, gl.FLOAT, false, 32, off); });
+      this.tPlain = this.tex(gl.RGB, gl.UNSIGNED_SHORT_5_6_5, 640, 480, gl.NEAREST);
+      this.tBg = this.tex(gl.RGB, gl.UNSIGNED_SHORT_5_6_5, 640, 480, gl.NEAREST);
+      this.tMenu = this.tex(gl.RGBA, gl.UNSIGNED_BYTE, 640, 480, gl.NEAREST);
+      this.tAtlas = null; this.uv = null; this.q = new Float32Array(0); this.layers = 0;
+    }
+    tex(fmt, type, w, h, filter, data = null) {
+      const gl = this.gl, t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, filter], [gl.TEXTURE_MAG_FILTER, filter], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      gl.texImage2D(gl.TEXTURE_2D, 0, fmt, w, h, 0, fmt, type, data);
+      return t;
+    }
+    rows(t, buf, head, bpp) {	/* rows y0..y1 straight onto the GPU */
+      const gl = this.gl, dv = new DataView(buf), y0 = dv.getUint16(head - 4, true), y1 = dv.getUint16(head - 2, true), n = (y1 - y0 + 1) * 640;
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      if (bpp === 2) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, 640, y1 - y0 + 1, gl.RGB, gl.UNSIGNED_SHORT_5_6_5, new Uint16Array(buf, head, n));
+      else gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, 640, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(buf, head, n * 4));
+    }
+    message(buf) {
+      const k = new Uint8Array(buf, 0, 1)[0];
+      if (k === 71) this.rows(this.tPlain, buf, 6, 2);       /* G */
+      else if (k === 66) this.rows(this.tBg, buf, 6, 2);     /* B */
+      else if (k === 77) this.rows(this.tMenu, buf, 8, 4);   /* M */
+      else if (k === 80) this.q = new Float32Array(buf, 4, new DataView(buf).getUint16(2, true) * 8);	/* P */
+      else if (k === 83) {                                    /* S */
+        const dv = new DataView(buf), aw = dv.getUint16(2, true), ah = dv.getUint16(4, true), n = dv.getUint8(6);
+        this.uv = new Float32Array(buf.slice(8, 8 + n * 16));
+        if (this.tAtlas) this.gl.deleteTexture(this.tAtlas);
+        this.tAtlas = this.tex(this.gl.RGBA, this.gl.UNSIGNED_BYTE, aw, ah, this.gl.LINEAR, new Uint8Array(buf, 8 + n * 16, aw * ah * 4));
+      }
+    }
+    put(i, x0, y0, x1, y1, u0, v0, u1, v1) {	/* a plain rectangle */
+      this.v.set([x0, y0, u0, v0, 1, 1, 1, 1, x1, y0, u1, v0, 1, 1, 1, 1, x1, y1, u1, v1, 1, 1, 1, 1, x0, y1, u0, v1, 1, 1, 1, 1], i * 32);
+    }
+    full(t, swz, blend) {
+      const gl = this.gl;
+      this.put(0, 0, 0, 640, 480, 0, 0, 1, 1);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.v.subarray(0, 32));
+      if (blend) { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); } else gl.disable(gl.BLEND);
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.uniform1f(this.uW, swz);
+      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    }
+    particles() {
+      const gl = this.gl, q = this.q, uv = this.uv, v = this.v;
+      if (!this.tAtlas || !uv || !q.length) return;
+      let nq = 0, nNormal = 0;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i + 8 <= q.length && nq < 299; i += 8) {
+          const sp = q[i + 7] | 0, glow = sp >= 256 ? 1 : 0;
+          if (glow !== pass) continue;
+          const s4 = (sp & 255) * 4, ux = uv[s4], uy = uv[s4 + 1], uw = uv[s4 + 2], uh = uv[s4 + 3];
+          const x = q[i], y = q[i + 1], hw = q[i + 2] / 2, hh = q[i + 3] / 2, a = q[i + 4] * 0.017453293, c = Math.cos(a), sn = Math.sin(a);
+          const t = q[i + 6] | 0, r = ((t >> 16) & 255) / 255, g = ((t >> 8) & 255) / 255, b = (t & 255) / 255, al = q[i + 5];
+          const o = nq * 32;
+          const CX = [-1, 1, 1, -1], CY = [-1, -1, 1, 1];
+          for (let k = 0; k < 4; k++) {
+            const dx = CX[k] * hw, dy = CY[k] * hh, p = o + k * 8;
+            v[p] = x + dx * c - dy * sn; v[p + 1] = y + dx * sn + dy * c;
+            v[p + 2] = ux + (CX[k] > 0 ? uw : 0); v[p + 3] = uy + (CY[k] > 0 ? uh : 0);
+            v[p + 4] = r; v[p + 5] = g; v[p + 6] = b; v[p + 7] = al;
+          }
+          nq++;
+        }
+        if (pass === 0) nNormal = nq;
+      }
+      if (!nq) return;
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, v.subarray(0, nq * 32));
+      gl.bindTexture(gl.TEXTURE_2D, this.tAtlas);
+      gl.uniform1f(this.uW, 1);
+      gl.enable(gl.BLEND);
+      if (nNormal) { gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.drawElements(gl.TRIANGLES, nNormal * 6, gl.UNSIGNED_SHORT, 0); }
+      if (nq > nNormal) { gl.blendFunc(gl.SRC_ALPHA, gl.ONE); gl.drawElements(gl.TRIANGLES, (nq - nNormal) * 6, gl.UNSIGNED_SHORT, nNormal * 12); }
+    }
+    draw() {
+      this.gl.viewport(0, 0, 640, 480);
+      if (!this.layers) return this.full(this.tPlain, 0, false);
+      this.full(this.tBg, 0, false);
+      this.particles();
+      this.full(this.tMenu, 1, true);
+    }
+  }
+
   /* --------------------------- full speed: Zappo runs natively (Termux) */
-  /* zappo-tablet serves this page and streams the picture over a WebSocket:
-     "F" + rows of RGB565, "A" + sound; text: "t tab music median p95 n",
-     "l command" (a game was chosen), "g playing|failed<TAB>name<TAB>core<TAB>why"
-     (Android: it went to RetroArch), "a rate ch", "b level", "q". */
+  /* zappo-tablet serves this page and streams the picture over a WebSocket
+     (see plat_tablet.c: 'G' 'B' 'M' 'P' 'S' pictures, "L n" layers), "A" +
+     sound; text: "t tab music median p95 n", "l command" (a game was chosen),
+     "g playing|failed<TAB>name<TAB>core<TAB>why" (Android: it went to
+     RetroArch), "a rate ch", "b level", "q". This page answers "d N" once
+     it has drawn N pictures. */
   class NativeEngine {
     constructor() {
       this.running = false; this.frameMs = []; this.stats = null; this._tab = 2; this._music = 0;
-      this.ctx = $("screen").getContext("2d", { alpha: false });
-      this.img = this.ctx.createImageData(640, 480);
-      this.px = new Uint32Array(this.img.data.buffer);
+      this.unacked = 0; this.dirty = false;
+      try { this.glv = new GLScreen($("screen")); } catch (e) { this.glv = null; console.warn("WebGL:", e && e.message); }
+      if (!this.glv) {
+        this.ctx = $("screen").getContext("2d", { alpha: false });
+        this.img = this.ctx.createImageData(640, 480);
+        this.px = new Uint32Array(this.img.data.buffer);
+      }
     }
     connect() {
       const ws = new WebSocket("ws://" + location.host + "/ws");
       ws.binaryType = "arraybuffer";
       this.ws = ws;
-      ws.onopen = () => { this.running = true; ovl.hidden = true; ovlAction = null; playing = false; ws.send("full"); for (const [b, set] of held) if (set.size) this.key(b, 1); };
+      ws.onopen = () => { this.running = true; ovl.hidden = true; ovlAction = null; playing = false; this.unacked = 0; ws.send("gl " + (this.glv ? 1 : 0)); ws.send("full"); for (const [b, set] of held) if (set.size) this.key(b, 1); };
       ws.onclose = () => {
         this.running = false;
         if (ovl.hidden || !ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo X isn\'t running</h2><p>Open <b>Termux</b> once: it starts Zappo X by itself.<br>Then come back here; this connects on its own.</p><p style="margin-top:14px;font-size:13px">(Or in Termux: <code>sh ~/zappo-x/tablet/run.sh</code>)</p></div>'; }
@@ -862,10 +978,18 @@ window.ZAPPO_NATIVE = true;
       ws.onmessage = (e) => {
         if (typeof e.data === "string") return this.text(e.data);
         const u8 = new Uint8Array(e.data);
-        if (u8[0] === 70) {            /* F: rows y0..y1 */
-          const y0 = (u8[1] << 8) | u8[2], y1 = (u8[3] << 8) | u8[4];
+        if (u8[0] === 65) {            /* A: sound */
+          const pcm = new Int16Array(e.data.slice(1, 1 + ((u8.length - 1) & ~1)));
+          sound.push(pcm, pcm.length / sound.ch);
+          return;
+        }
+        this.unacked++;
+        this.dirty = true;
+        if (this.glv) return this.glv.message(e.data);
+        if (u8[0] === 71) {            /* G, without WebGL: rows y0..y1 */
+          const dv = new DataView(e.data), y0 = dv.getUint16(2, true), y1 = dv.getUint16(4, true);
           const n = (y1 - y0 + 1) * 640;
-          const src = new Uint16Array(e.data.slice(5, 5 + n * 2));
+          const src = new Uint16Array(e.data, 6, n);
           const px = this.px, o = y0 * 640;
           for (let i = 0; i < n; i++) {
             const v = src[i];
@@ -873,9 +997,6 @@ window.ZAPPO_NATIVE = true;
             px[o + i] = 0xff000000 | (((b << 3) | (b >> 2)) << 16) | (((g << 2) | (g >> 4)) << 8) | ((r << 3) | (r >> 2));
           }
           this.ctx.putImageData(this.img, 0, 0, 0, y0, 640, y1 - y0 + 1);
-        } else if (u8[0] === 65) {     /* A: sound */
-          const pcm = new Int16Array(e.data.slice(1, 1 + ((u8.length - 1) & ~1)));
-          sound.push(pcm, pcm.length / sound.ch);
         }
       };
     }
@@ -884,13 +1005,19 @@ window.ZAPPO_NATIVE = true;
       if (k === "t") {
         const [tab, music, med, p95, n] = rest.map(Number);
         this._tab = tab; this._music = music; this.stats = { med, p95, n };
-      } else if (k === "l") { showLaunch(m.slice(2), () => this.ws.send("back")); }
+      } else if (k === "L") { if (this.glv) this.glv.layers = +rest[0]; this.dirty = true; }
+      else if (k === "l") { showLaunch(m.slice(2), () => this.ws.send("back")); }
       else if (k === "g") { showPlaying(m.slice(2).split("\t"), () => { if (this.running) this.ws.send("back"); }); }
       else if (k === "a") { if (rest[0] === "end") sound.stop(false); else { sound.wake(); sound.open(+rest[0], +rest[1]); } }
       else if (k === "b") { const lv = +rest[0]; $("screen").style.filter = lv <= 0 ? "brightness(0)" : `brightness(${(0.35 + lv * 0.065).toFixed(2)})`; }
       else if (k === "q") { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo closed</h2></div>'; }
     }
-    frame() { return true; }
+    frame() {	/* once a screen refresh: draw what came, and say so */
+      if (this.dirty && this.glv) this.glv.draw();
+      this.dirty = false;
+      if (this.unacked && this.running) { this.ws.send("d " + this.unacked); this.unacked = 0; }
+      return true;
+    }
     key(b, down) { if (this.running) this.ws.send(`k ${b} ${down ? 1 : 0}`); }
     tab() { return this._tab; }
     musicPlaying() { return this._music; }

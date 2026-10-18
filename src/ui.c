@@ -1620,7 +1620,11 @@ static void menu_build(int menu, int arg) {
 		add(M_MUSIC, MK_SUB, "Music", "", "Volume levelling, picking up where you were, the sleep timer.");
 		add(M_CONTROLS, MK_SUB, "Controls", "", "Confirm button, key repeat and an input tester.");
 		add(M_POWER, MK_SUB, "Screen & power", "", "Brightness, lock screen, battery, reboot and power off.");
+#ifdef ZAPPO_TABLET
+		add(M_PERF, MK_SUB, "Performance", g_set.full_power ? "Full power" : "Balanced", "How smoothly Zappo X moves on this tablet.");
+#else
 		add(M_PERF, MK_SUB, "Performance", "", "CPU speeds while browsing and while playing.");
+#endif
 #ifdef ZAPPO_KNULLI
 		if (plat_lights_available())
 			add(M_LIGHTS, MK_SUB, "Lights", LIGHT_MODES[CLAMP(g_set.lights, 0, LIGHTS_COUNT - 1)],
@@ -1862,6 +1866,14 @@ static void menu_build(int menu, int arg) {
 		break;
 	}
 	case M_PERF:
+#ifdef ZAPPO_TABLET
+		/* the tablet: no CPU speeds to set, but its graphics chip to use */
+		add(30, MK_CHOICE, "Tablet power", g_set.full_power ? "Full" : "Balanced",
+		    "Full: everything moves at 60 frames a second, the moving backgrounds drawn by the tablet's graphics chip. "
+		    "Balanced: the backgrounds at 30, easier on the battery.");
+		add(0, MK_INFO, "Games run in RetroArch, at the tablet's own full speed either way.", "", NULL);
+		break;
+#endif
 		snfmt(b, sizeof b, "%d MHz", g_set.menu_cpu / 1000);
 		add(1, MK_CHOICE, "Menu CPU limit", b, "Lower saves battery while browsing. Games use their own speed.");
 		add(2, MK_ACTION, "Use recommended speeds", "", "Resets every system's CPU speed to Zappo's recommendation.");
@@ -2400,6 +2412,10 @@ static void menu_change(View *mv, int id, int dir) {
 		return;
 	}
 	case M_PERF:
+#ifdef ZAPPO_TABLET
+		if (id == 30) { g_set.full_power = !g_set.full_power; mark_settings(); dirty = 1; }
+		return;
+#endif
 		if (id == 1) {
 			static const int M[] = {504000, 720000, 1008000};
 			int cur = 2;

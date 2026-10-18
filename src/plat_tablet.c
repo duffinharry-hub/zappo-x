@@ -47,6 +47,9 @@ int app_end(void);
 static uint32_t canvas[SCREEN_W * SCREEN_H];
 static uint16_t sent[SCREEN_W * SCREEN_H]; /* the picture the page has, as RGB565 */
 static int have_sent;
+static int gpu_page;           /* the page draws layers itself (WebGL) */
+static int inflight;           /* pictures sent that the page hasn't drawn yet */
+static void reset_page_state(void);
 static int brightness = 7;
 static int cpu_max = 1512000;
 static char cpu_gov[32] = "ondemand";
@@ -228,7 +231,8 @@ static void accept_one(void) {
 	if (csock >= 0) close(csock); /* the newest page wins */
 	csock = fd;
 	pthread_mutex_unlock(&wlock);
-	have_sent = 0; /* send it the whole picture */
+	gpu_page = 0;	/* (until it says) */
+	reset_page_state(); /* send it the whole picture */
 	LOG("tablet: page connected");
 }
 
@@ -243,7 +247,13 @@ static void page_message(char *m) {
 	} else if (!strcmp(m, "back")) {
 		back_pressed = 1;
 	} else if (!strcmp(m, "full")) {
-		have_sent = 0;
+		reset_page_state();
+	} else if (sscanf(m, "gl %d", &b) == 1) {
+		gpu_page = b != 0;
+		LOG("tablet: the page %s", gpu_page ? "draws with the graphics chip (WebGL)" : "has no WebGL: pictures put together here");
+		reset_page_state();
+	} else if (sscanf(m, "d %d", &b) == 1) {
+		inflight = inflight > b ? inflight - b : 0;
 	} else if (!strcmp(m, "reset")) {
 		render_n = 0; /* the page's speed test starts */
 	}
@@ -325,68 +335,190 @@ static void *audio_thread(void *arg) {
 }
 
 /* ----------------------------------------------------------- picture */
+/* What the page gets, as binary messages (little-endian; the pixels start
+ * where the page can hand them to its graphics chip as they are):
+ *   'G' 0 y0 y1          + rows of RGB565: the whole picture
+ *   'B' 0 y0 y1          + rows of RGB565: the moving background's picture
+ *   'M' 0 0 0 y0 y1      + rows of 0xAARRGGBB (premultiplied): the menu over it
+ *   'P' 0 n              + n x 8 floats: the particles (x y w h angle alpha
+ *                          tint sprite+256*glow)
+ *   'S' 0 aw ah n        + n x 4 floats (where each sprite sits) + the atlas,
+ *                          0xAARRGGBB
+ * and the text "L 1" / "L 0": layers on or off. A page with WebGL says
+ * "gl 1": the background, particles and menu are then put together by the
+ * tablet's graphics chip (the handheld's way); without it, here on the CPU.
+ * The page answers "d N" when it has drawn N pictures, and no more than
+ * three go out ahead of that: a slow moment drops pictures instead of
+ * piling them up. */
+#include "config.h"
+static int page_layers = -1;   /* what the page is showing: 0 one picture, 1 layers */
+static int pending;
+static int atlas_sent, bg_sent, have_sent_m;
+static uint32_t sent_m[SCREEN_W * SCREEN_H];
+static int scene_on;
+static uint64_t scene_last, scene_next;
+static uint32_t scene_bg[SCREEN_W * SCREEN_H], mixed[SCREEN_W * SCREEN_H];
+#define AHEAD 3
 
-/* rows that changed since the page's copy, as RGB565: "F" y0 y1 then pixels */
-static void stream(const uint32_t *px) {
-	if (csock < 0) return;
-	int y0 = -1, y1 = -1;
+static void reset_page_state(void) {
+	have_sent = have_sent_m = atlas_sent = bg_sent = 0;
+	page_layers = -1;
+	inflight = 0;
+	pending = 1;
+}
+
+static int scene_ms(void) {
+	if (gpu_page) return g_set.full_power ? 16 : 33;	/* 60 or 30 a second */
+	return g_set.full_power ? 33 : 50;
+}
+
+static void send_pic(const uint8_t *msg, size_t n) {
+	ws_send(1, msg, n);
+	inflight++;
+}
+
+/* rows of px that changed since the page's copy, as RGB565 */
+static void send_565(char kind, const uint32_t *px, uint16_t *copy, int *have) {
 	static uint16_t cur[SCREEN_W * SCREEN_H];
+	static uint8_t msg[6 + SCREEN_W * SCREEN_H * 2];
+	int y0 = -1, y1 = -1;
 	for (int y = 0; y < SCREEN_H; y++) {
-		const uint32_t *s = px + y * SCREEN_W;
+		const uint32_t *sp = px + y * SCREEN_W;
 		uint16_t *d = cur + y * SCREEN_W;
 		for (int x = 0; x < SCREEN_W; x++) {
-			uint32_t p = s[x];
+			uint32_t p = sp[x];
 			d[x] = (uint16_t)(((p >> 8) & 0xF800) | ((p >> 5) & 0x07E0) | ((p >> 3) & 0x001F));
 		}
-		if (!have_sent || memcmp(d, sent + y * SCREEN_W, SCREEN_W * 2)) { if (y0 < 0) y0 = y; y1 = y; }
+		if (!*have || memcmp(d, copy + y * SCREEN_W, SCREEN_W * 2)) { if (y0 < 0) y0 = y; y1 = y; }
 	}
 	if (y0 < 0) return;
 	size_t n = (size_t)(y1 - y0 + 1) * SCREEN_W * 2;
-	static uint8_t msg[5 + SCREEN_W * SCREEN_H * 2];
-	msg[0] = 'F';
-	msg[1] = (uint8_t)(y0 >> 8); msg[2] = (uint8_t)y0;
-	msg[3] = (uint8_t)(y1 >> 8); msg[4] = (uint8_t)y1;
-	memcpy(msg + 5, cur + y0 * SCREEN_W, n);
-	memcpy(sent + y0 * SCREEN_W, cur + y0 * SCREEN_W, n);
-	have_sent = 1;
-	ws_send(1, msg, n + 5);
+	msg[0] = (uint8_t)kind; msg[1] = 0;
+	msg[2] = (uint8_t)y0; msg[3] = (uint8_t)(y0 >> 8);
+	msg[4] = (uint8_t)y1; msg[5] = (uint8_t)(y1 >> 8);
+	memcpy(msg + 6, cur + y0 * SCREEN_W, n);
+	memcpy(copy + y0 * SCREEN_W, cur + y0 * SCREEN_W, n);
+	*have = 1;
+	send_pic(msg, n + 6);
 }
 
-/* The moving backgrounds: the background picture, the section's particles
- * (scene.c) and the menu - drawn see-through - put together here, on the
- * CPU, and streamed like any other picture. */
-static int scene_on;
-static uint64_t scene_last, scene_next;
-static int scene_ms = 50;	/* 20 frames a second */
-static uint32_t scene_bg[SCREEN_W * SCREEN_H], mixed[SCREEN_W * SCREEN_H];
+/* the menu (see-through): the rows that changed, as they are */
+static void send_menu(void) {
+	static uint8_t msg[8 + SCREEN_W * SCREEN_H * 4];
+	int y0 = -1, y1 = -1;
+	for (int y = 0; y < SCREEN_H; y++)
+		if (!have_sent_m || memcmp(canvas + y * SCREEN_W, sent_m + y * SCREEN_W, SCREEN_W * 4)) { if (y0 < 0) y0 = y; y1 = y; }
+	if (y0 < 0) return;
+	size_t n = (size_t)(y1 - y0 + 1) * SCREEN_W * 4;
+	memset(msg, 0, 8);
+	msg[0] = 'M';
+	msg[4] = (uint8_t)y0; msg[5] = (uint8_t)(y0 >> 8);
+	msg[6] = (uint8_t)y1; msg[7] = (uint8_t)(y1 >> 8);
+	memcpy(msg + 8, canvas + y0 * SCREEN_W, n);
+	memcpy(sent_m + y0 * SCREEN_W, canvas + y0 * SCREEN_W, n);
+	have_sent_m = 1;
+	send_pic(msg, n + 8);
+}
+
+/* the particle pictures, side by side in one picture */
+static void send_atlas(void) {
+	int aw = 0, ah = 0;
+	for (int i = 0; i < SP_COUNT; i++) {
+		int w, h;
+		scene_sprite(i, &w, &h);
+		aw += w + 2;
+		if (h + 2 > ah) ah = h + 2;
+	}
+	size_t head = 8 + SP_COUNT * 16, n = head + (size_t)aw * (size_t)ah * 4;
+	uint8_t *msg = calloc(1, n);
+	if (!msg) return;
+	msg[0] = 'S';
+	msg[2] = (uint8_t)aw; msg[3] = (uint8_t)(aw >> 8);
+	msg[4] = (uint8_t)ah; msg[5] = (uint8_t)(ah >> 8);
+	msg[6] = SP_COUNT;
+	float *uv = (float *)(msg + 8);
+	uint32_t *apx = (uint32_t *)(msg + head);
+	for (int i = 0, x = 1; i < SP_COUNT; i++) {
+		int w, h;
+		const uint32_t *px = scene_sprite(i, &w, &h);
+		for (int y = 0; y < h; y++) memcpy(apx + (y + 1) * aw + x, px + y * w, (size_t)w * 4);
+		uv[i * 4] = (float)x / aw; uv[i * 4 + 1] = 1.0f / ah; uv[i * 4 + 2] = (float)w / aw; uv[i * 4 + 3] = (float)h / ah;
+		x += w + 2;
+	}
+	send_pic(msg, n);
+	free(msg);
+	atlas_sent = 1;
+}
+
+static float scene_dt(void) {
+	uint64_t now = now_ms_();
+	float dt = scene_last ? (now - scene_last) / 1000.0f : 0.0f;
+	if (dt > 0.25f) dt = 0.25f;	/* (after a pause, carry on rather than jump) */
+	scene_last = now;
+	return dt;
+}
+
+static void send_particles(void) {
+	static SceneQuad qd[256];
+	static uint8_t msg[4 + 256 * 32];
+	int n = scene_update(scene_dt(), qd, 256);
+	msg[0] = 'P'; msg[1] = 0;
+	msg[2] = (uint8_t)n; msg[3] = (uint8_t)(n >> 8);
+	float *f = (float *)(msg + 4);
+	for (int i = 0; i < n; i++, f += 8) {
+		f[0] = qd[i].x; f[1] = qd[i].y; f[2] = qd[i].w; f[3] = qd[i].h;
+		f[4] = qd[i].angle; f[5] = qd[i].alpha; f[6] = (float)(qd[i].tint & 0xFFFFFF);
+		f[7] = (float)(qd[i].sprite + (qd[i].additive ? 256 : 0));
+	}
+	send_pic(msg, 4 + (size_t)n * 32);
+}
+
+/* brings the page up to date: the menu, and the moving background if it's on */
+static void sync_page(int particles) {
+	if (csock < 0) return;
+	if (inflight >= AHEAD) { pending = 1; return; }
+	pending = 0;
+	int layers = scene_on && gpu_page;
+	if (layers != page_layers) {
+		ws_text("L %d", layers);
+		page_layers = layers;
+		have_sent = have_sent_m = bg_sent = 0;
+	}
+	if (!layers) {
+		if (scene_on) {
+			scene_compose_soft(mixed, scene_bg, canvas, SCREEN_W, SCREEN_H, scene_dt());
+			send_565('G', mixed, sent, &have_sent);
+		} else send_565('G', canvas, sent, &have_sent);
+	} else {
+		static uint16_t sent_bg[SCREEN_W * SCREEN_H];
+		if (!atlas_sent) send_atlas();
+		if (!bg_sent) { int h = 0; send_565('B', scene_bg, sent_bg, &h); bg_sent = 1; }
+		send_menu();
+		if (particles || !scene_last) send_particles();
+	}
+	if (scene_on) scene_next = now_ms_() + (uint64_t)scene_ms();
+}
 
 int plat_layers_ok(void) { return 1; }
 
 void plat_scene(const uint32_t *bg, int bg_changed, int element, int density) {
 	int on = bg != NULL;
-	if (on && bg_changed) memcpy(scene_bg, bg, sizeof scene_bg);
+	if (on && bg_changed) { memcpy(scene_bg, bg, sizeof scene_bg); bg_sent = 0; }
 	if (on != scene_on) scene_last = 0;
 	scene_on = on;
 	scene_set(on ? element : EL_NONE, density);
 }
 
-static void scene_send(void) {
-	uint64_t now = now_ms_();
-	float dt = scene_last ? (now - scene_last) / 1000.0f : 0.0f;
-	if (dt > 0.25f) dt = 0.25f;	/* (after a pause, carry on rather than jump) */
-	scene_last = now;
-	scene_compose_soft(mixed, scene_bg, canvas, SCREEN_W, SCREEN_H, dt);
-	stream(mixed);
-	scene_next = now_ms_() + (uint64_t)scene_ms;
-}
-
+/* called when there's nothing new to draw: the particles move on, and a
+ * picture held back while the page caught up goes now */
 int plat_scene_frame(void) {
-	if (!scene_on) return 0;
-	if (csock < 0) return 500;	/* nobody watching */
+	if (csock < 0) return scene_on ? 500 : 0;	/* nobody watching */
+	if (pending && inflight < AHEAD) { sync_page(scene_on); return scene_on ? scene_ms() : 0; }
+	if (!scene_on) return pending ? 16 : 0;
 	uint64_t now = now_ms_();
 	if (now < scene_next) return (int)(scene_next - now);
-	scene_send();
-	return scene_ms;
+	sync_page(1);
+	return scene_ms();
 }
 
 void plat_transition(void) {}
@@ -395,8 +527,8 @@ extern double app_render_ms;
 void plat_present(void) {
 	double t = app_render_ms;
 	if (t > 0 && t < 1000) { render_ms[render_n % 600] = t; render_n++; }
-	if (scene_on) scene_send();
-	else stream(canvas);
+	/* (the particles go with the menu when they're due anyway) */
+	sync_page(scene_on && now_ms_() + 4 >= scene_next);
 }
 
 uint32_t *plat_canvas(void) { return canvas; }

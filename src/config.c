@@ -104,6 +104,9 @@ void settings_load(void) {
 	s->lights_colour = CLAMP(jint(root, "lights_colour", 0), 0, 8);
 	s->lights_effect = CLAMP(jint(root, "lights_effect", 0), 0, 3);
 	s->motion = CLAMP(jint(root, "motion", 2), 0, 2);
+#ifdef ZAPPO_TABLET
+	s->full_power = CLAMP(jint(root, "full_power", 0), 0, 1);
+#endif
 	s->style = name_index(jstr(root, "style", "classic"), STYLE_NAMES, STYLE_COUNT, STYLE_CLASSIC);
 	/* 0.3.5 brings the Glass style and the Shelf layouts: switched on once
 	 * (Settings > Look changes them back) */
@@ -175,6 +178,9 @@ void settings_save(void) {
 	jset_num(r, "lights_colour", s->lights_colour);
 	jset_num(r, "lights_effect", s->lights_effect);
 	jset_num(r, "motion", s->motion);
+#ifdef ZAPPO_TABLET
+	jset_num(r, "full_power", s->full_power);
+#endif
 	jset_str(r, "style", STYLE_NAMES[CLAMP(s->style, 0, STYLE_COUNT - 1)]);
 	jset_num(r, "settings_version", 6);
 	jset_num(r, "brightness", s->brightness);

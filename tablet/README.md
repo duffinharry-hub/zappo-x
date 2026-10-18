@@ -79,12 +79,20 @@ library (the pictures RetroArch uses), over Wi-Fi. They are saved as
 `Roms/<console>/Imgs/<game>.png` on the test card, as on a GarlicOS card.
 It carries on in the background; the menu shows how it's going.
 
-## Moving backgrounds
+## Smoothness: Tablet power
 
-Settings > Look > Moving backgrounds: each section's Zappo element drifts
-behind the menus (Off, Fewer, On). On the tablet the picture is put together
-on the processor and streamed to the page, about 20 frames a second.
-Off if the tablet feels slow.
+Zappo X draws its menus as on the handheld, and the tablet's graphics chip
+puts them on screen (WebGL in the app): the background picture, the moving
+particles and the menu as separate layers, as the RG40XX H's GPU does. Only
+what changed is sent, and a slow moment skips pictures instead of falling
+behind.
+
+Settings > Performance > **Tablet power**:
+- **Balanced** (to start with): the moving backgrounds at 30 frames a second.
+- **Full**: everything at 60 frames a second.
+
+Settings > Look > Moving backgrounds: Off, Fewer or On. Without WebGL the
+picture is put together on the processor instead (slower).
 
 ## Where things are
 
