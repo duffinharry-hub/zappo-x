@@ -4,8 +4,10 @@ Runs the real Zappo X natively on an Android device through **Termux**, with
 the screen in Chrome: touch buttons, Bluetooth controllers, music, the stick
 lights following the section, the **moving backgrounds**, **Send to Zappo**,
 **Get box art**, and a **Speed test** that times every picture on the
-device's own processor.  Games are stand-ins (choosing one shows what the
-RG40XX H would start).
+device's own processor.  **Games really play**: choosing one starts it in
+RetroArch for Android (the same emulator cores Knulli uses, built for
+Android), and quitting RetroArch brings you back to Zappo X. Films open in
+the tablet's video player.
 
 First time, in Termux:
 
@@ -17,6 +19,30 @@ First time, in Termux:
 After that, `sh ~/zappo-x/tablet/run.sh` starts it, and
 `sh ~/zappo-x/tablet/update.sh` gets the newest version (and adds anything new
 it needs, such as Python).
+
+## Playing games
+
+1. **RetroArch for Android**: get the 64-bit version from retroarch.com
+   (Download > Android). Open it once, allow it to see your files, and quit.
+   (The Play Store and F-Droid versions work too; retroarch.com's has the
+   core downloader built in.)
+2. **Let Termux open RetroArch**: Android's Settings > Apps > Termux >
+   **Appear on top** > Allow. (Android only lets an app in the background open
+   another app with this.)
+3. **Games**: the install puts Zappo X's card in the tablet's own storage, in
+   a folder called **Zappo X**. Games go in `Zappo X/mmc/Roms/<console>` -
+   the GarlicOS folder names: `GB`, `GBC`, `GBA`, `FC` (NES), `SFC` (SNES),
+   `MD`, `MS`, `GG`, `PS`, `PCE`, `NGP`, `WS`, `NDS`, `N64`, `PSP` ... Copy
+   them from a PC over USB (the tablet shows up as a drive), or use **Send to
+   Zappo** (below) and Zappo sorts them.
+4. **Cores**: the first time a console's game starts, RetroArch may say it
+   can't load the core. In RetroArch: Load Core > Download a Core, pick the
+   one Zappo's screen named (mgba, snes9x, gambatte ...), quit, and start the
+   game again from Zappo X.
+
+Quitting RetroArch (its menu > Quit) comes back to Zappo X by itself. Saves
+are RetroArch's own (in the tablet's `RetroArch` folder). PlayStation and a
+few others want BIOS files: RetroArch looks in `RetroArch/system`.
 
 ## Send to Zappo
 
@@ -40,10 +66,16 @@ It carries on in the background; the menu shows how it's going.
 Settings > Look > Moving backgrounds: each section's Zappo element drifts
 behind the menus (Off, Fewer, On). On the tablet the picture is put together
 on the processor and streamed to the page, about 20 frames a second.
+Off if the tablet feels slow.
 
 ## Where things are
 
-The test card lives in `~/zappo-card` (your settings are kept there; Send to
-Zappo and Get box art run from `~/zappo-card/mmc/CFW/clove`).
+The card is the **Zappo X** folder in the tablet's own storage
+(`/storage/emulated/0/Zappo X`); your settings are kept there, and Send to
+Zappo and Get box art run from its `mmc/CFW/clove`. The first install that
+puts it there brings your settings across from the old `~/zappo-card` and
+leaves that folder as it was. If Termux isn't allowed to see your files, the
+card stays in `~/zappo-card` with the pretend games, and games can't start in
+RetroArch.
 `tablet/card` and `tablet/web` are built by `tools/webcard.py` and
 `tools/webpage.py tablet/web --native`.

@@ -1146,8 +1146,10 @@ static void apply_managed(Cfg *c, int sys) {
 }
 
 static void prepare_retroarch(const char *rom_path, int sys) {
-#ifdef ZAPPO_KNULLI
-	data_start_over = 0; /* Knulli writes RetroArch's settings itself at each start */
+#if defined(ZAPPO_KNULLI) || defined(ZAPPO_TABLET)
+	/* Knulli writes RetroArch's settings itself at each start; on a tablet
+	 * they're RetroArch for Android's own */
+	data_start_over = 0;
 	return;
 #endif
 	char p[512];
@@ -1337,9 +1339,15 @@ static int write_command(const char *body) {
 #else
 	snfmt(p, sizeof p, "%s/retroarch/command.sh", g_paths.cfw);
 #endif
+#ifdef ZAPPO_TABLET
+	/* the tablet starts it itself (RetroArch for Android); the file is only a note */
+	{ void web_launch(const char *body); web_launch(body); }
+	(void)p;
+	return 0;
+#endif
 	if (file_write_all(p, body, strlen(body)) != 0) return -1;
 	chmod(p, 0755);
-#if defined(__wasm__) || defined(ZAPPO_TABLET)
+#ifdef __wasm__
 	{ void web_launch(const char *body); web_launch(body); } /* the page shows what would start */
 #endif
 #ifndef __wasm__
@@ -1387,7 +1395,9 @@ int data_launch(const Entry *e, char *err, size_t errn) {
 	if (!*core) { snfmt(err, errn, "No emulator set for %s", g_sys[sys].code); return -1; }
 	char cp[512], qrom[1200], cpu[256], body[6000];
 	core_path(core, cp, sizeof cp);
+#ifndef ZAPPO_TABLET	/* (on a tablet the emulators are RetroArch for Android's) */
 	if (!file_exists(cp)) { snfmt(err, errn, "Emulator not installed: %s", core); return -1; }
+#endif
 	shell_squote(e->path, qrom, sizeof qrom);
 	cpu_lines(data_sys_cpu(sys), cpu, sizeof cpu);
 	if (strcmp(core, "/bin/sh") == 0) {

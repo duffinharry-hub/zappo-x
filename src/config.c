@@ -70,8 +70,9 @@ void settings_load(void) {
 	s->clock_mode = CLAMP(jint(root, "clock_mode", 0), 0, 2);
 	s->battery_mode = CLAMP(jint(root, "battery_mode", 0), 0, 2);
 	s->show_guide = jint(root, "show_guide", 1);
-#ifdef ZAPPO_KNULLI
-	/* Knulli makes a folder for each of its ~180 systems: list only those with games */
+#if defined(ZAPPO_KNULLI) || defined(ZAPPO_TABLET)
+	/* Knulli makes a folder for each of its ~180 systems, and the tablet knows
+	 * every console RetroArch for Android can play: list only those with games */
 	s->empty_consoles = CLAMP(jint(root, "empty_consoles", 1), 0, 1);
 #else
 	s->empty_consoles = CLAMP(jint(root, "empty_consoles", 0), 0, 1);

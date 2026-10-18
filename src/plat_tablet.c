@@ -5,11 +5,15 @@
  * the Zappo X page on http://127.0.0.1:8640 and streams the picture to it
  * over a WebSocket, takes button presses back, and plays the music in the
  * page: music.c pipes its sound into a FIFO (CLOVE_AUDIO_CMD) that a small
- * thread here passes on at playing speed.  Games don't start - the page
- * shows what the handheld would run, then Zappo starts again.
+ * thread here passes on at playing speed.  On an Android tablet a chosen game
+ * starts in RetroArch for Android and a film in the tablet's video player;
+ * elsewhere (a Linux PC) the page shows what the handheld would run.  Either
+ * way Zappo starts again when the page comes back.
  *
- * Environment: ZAPPO_CARD (card folder, default ~/zappo-card), ZAPPO_WEB
- * (page folder, default ./web-native), ZAPPO_PORT (default 8640). */
+ * Environment: ZAPPO_CARD (card folder; default "Zappo X" in the tablet's
+ * own storage when Termux can reach it, else ~/zappo-card), ZAPPO_WEB (page
+ * folder, default ./web-native), ZAPPO_PORT (default 8640), ZAPPO_RETROARCH
+ * (RetroArch's Android package, when it isn't found by itself). */
 #include "plat.h"
 #include "music.h"
 #include "scene.h"
@@ -30,7 +34,9 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <limits.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -453,12 +459,26 @@ void plat_describe(char *out, size_t n) {
 
 void plat_power(int reboot) { ws_text("p %d", reboot); }
 
-int plat_init(void) {
+/* Where the card is.  On Android it goes in the tablet's own storage
+ * ("Zappo X" beside Download, Pictures ...): RetroArch can open games there,
+ * and a PC plugged in by USB sees it.  `intended`: where it should be (for
+ * the installer), even before it's made. */
+static void card_dir(char *out, size_t n, int intended) {
 	const char *home = getenv("HOME");
 	const char *card = getenv("ZAPPO_CARD");
-	char c[512];
-	snfmt(c, sizeof c, "%s/zappo-card", home ? home : ".");
-	if (!card) card = c;
+	if (card && *card) { sncpy(out, card, n); return; }
+	char shared[512], c[512];
+	snfmt(shared, sizeof shared, "%s/storage/shared", home ? home : ".");
+	snfmt(c, sizeof c, "%s/Zappo X", shared);
+	if (dir_exists(shared) && (intended || dir_exists(c))) sncpy(out, c, n);
+	else snfmt(out, n, "%s/zappo-card", home ? home : ".");
+}
+
+int plat_init(void) {
+	char c[512], real[PATH_MAX];
+	card_dir(c, sizeof c, 0);
+	/* (the real path: ~/storage/shared is a link, and RetroArch is given paths) */
+	const char *card = realpath(c, real) ? real : c;
 	snfmt(g_paths.mmc, sizeof g_paths.mmc, "%s/mmc", card);
 	snfmt(g_paths.sd, sizeof g_paths.sd, "%s/sdcard", card);
 	snfmt(g_paths.cfw, sizeof g_paths.cfw, "%s/CFW", g_paths.mmc);
@@ -474,6 +494,132 @@ void plat_quit(void) {}
 
 /* what the handheld would have run (data.c's command.sh) */
 void web_launch(const char *body) { sncpy(launched, body, sizeof launched); }
+
+/* ------------------------------------------ real games (Android) */
+
+static int on_android(void) { return access("/system/bin/app_process", F_OK) == 0; }
+
+/* runs a program (no shell) and keeps what it says; its exit code */
+static int run_capture(char *const argv[], char *out, size_t n) {
+	int fd[2];
+	out[0] = 0;
+	if (pipe(fd) != 0) return -1;
+	pid_t pid = fork();
+	if (pid < 0) { close(fd[0]); close(fd[1]); return -1; }
+	if (pid == 0) {
+		dup2(fd[1], 1);
+		dup2(fd[1], 2);
+		int nul = open("/dev/null", O_RDONLY);
+		if (nul >= 0) dup2(nul, 0);
+		for (int i = 3; i < 1024; i++) close(i);	/* (not the page's connection) */
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+	close(fd[1]);
+	size_t got = 0;
+	ssize_t r;
+	char sink[512];
+	while ((r = read(fd[0], got < n - 1 ? out + got : sink, got < n - 1 ? n - 1 - got : sizeof sink)) > 0)
+		if (got < n - 1) got += (size_t)r;
+	out[got] = 0;
+	close(fd[0]);
+	int st = 0;
+	if (waitpid(pid, &st, 0) != pid) return -1;
+	return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
+/* RetroArch's package: retroarch.com's 64-bit one first (it has the core
+ * downloader), then the others */
+static int retroarch_pkg(char *out, size_t n) {
+	const char *e = getenv("ZAPPO_RETROARCH");
+	if (e && *e) { sncpy(out, e, n); return 1; }
+	static const char *P[] = {"com.retroarch.aarch64", "com.retroarch", "com.retroarch.ra32"};
+	char list[16384];
+	char *argv[] = {"pm", "list", "packages", "retroarch", NULL};
+	run_capture(argv, list, sizeof list);
+	for (int i = 0; i < ARRAY_LEN(P); i++) {
+		char want[80];
+		snfmt(want, sizeof want, "package:%s", P[i]);
+		for (const char *h = strstr(list, want); h; h = strstr(h + 1, want)) {
+			char after = h[strlen(want)];
+			if (after == 0 || after == '\n' || after == '\r') { sncpy(out, P[i], n); return 1; }
+		}
+	}
+	return 0;
+}
+
+/* the game (or film) the launch is for, from the command it wrote:
+ *   .../retroarch -L "<core>" '<rom>'   or   /bin/sh '<script>' */
+static int parse_launch(const char *body, char *core, size_t cn, char *rom, size_t rn) {
+	core[0] = rom[0] = 0;
+	const char *q = NULL, *L = strstr(body, " -L \"");
+	if (L) {
+		const char *c = L + 5, *ce = strchr(c, '"');
+		if (!ce) return 0;
+		size_t k = MIN((size_t)(ce - c), cn - 1);
+		memcpy(core, c, k);
+		core[k] = 0;
+		q = strstr(ce, " '");
+	} else if ((q = strstr(body, "/bin/sh '")) != NULL) {
+		sncpy(core, "/bin/sh", cn);
+		q += 7;
+	}
+	if (!q) return 0;
+	q += 2;
+	size_t o = 0;
+	while (*q && o < rn - 1) {
+		if (!strncmp(q, "'\\''", 4)) { rom[o++] = '\''; q += 4; continue; }
+		if (*q == '\'') break;
+		rom[o++] = *q++;
+	}
+	rom[o] = 0;
+	return rom[0] != 0;
+}
+
+/* Starts the chosen game in RetroArch for Android (or a film in the video
+ * player).  1: it's starting; 0: not (msg says why, for the page). */
+static int android_play(const char *body, char *name, size_t nn, char *core_name, size_t cnn, char *msg, size_t mn) {
+	char core[512], rom[2048], out[4096];
+	name[0] = core_name[0] = msg[0] = 0;
+	if (!parse_launch(body, core, sizeof core, rom, sizeof rom)) { sncpy(msg, "Zappo couldn't tell which game that is.", mn); return 0; }
+	sncpy(name, path_base(rom), nn);
+	if (!strcmp(core, "/bin/sh")) { sncpy(msg, "Ports are made for the handheld: they don't run on the tablet.", mn); return 0; }
+	char so[160];
+	sncpy(so, path_base(core), sizeof so);
+	char *ext = strstr(so, "_libretro");
+	if (ext) *ext = 0;
+	sncpy(core_name, so, cnn);
+	if (!strcmp(so, "ffmpeg")) {	/* a film: the tablet's own player */
+		char *argv[] = {"termux-open", "--content-type", "video/*", rom, NULL};
+		int rc = run_capture(argv, out, sizeof out);
+		LOG("android: film %s -> %d %s", rom, rc, out);
+		if (rc != 0) { snfmt(msg, mn, "The tablet's video player didn't open (%s).", out[0] ? out : "termux-open"); return 0; }
+		return 1;
+	}
+	/* the package Android lists; if it won't say, each likely one in turn */
+	static const char *TRY[] = {"com.retroarch.aarch64", "com.retroarch", "com.retroarch.ra32"};
+	char found[64];
+	int listed = retroarch_pkg(found, sizeof found);
+	for (int i = 0; i < (listed ? 1 : ARRAY_LEN(TRY)); i++) {
+		const char *pkg = listed ? found : TRY[i];
+		char cmp[160], lib[300], cfg[300];
+		snfmt(cmp, sizeof cmp, "%s/com.retroarch.browser.retroactivity.RetroActivityFuture", pkg);
+		snfmt(lib, sizeof lib, "/data/data/%s/cores/%s_libretro_android.so", pkg, so);
+		snfmt(cfg, sizeof cfg, "/storage/emulated/0/Android/data/%s/files/retroarch.cfg", pkg);
+		char *argv[] = {"am", "start", "-n", cmp, "-a", "android.intent.action.MAIN", "--activity-clear-task",
+		                "--es", "ROM", rom, "--es", "LIBRETRO", lib, "--es", "CONFIGFILE", cfg, NULL};
+		int rc = run_capture(argv, out, sizeof out);
+		LOG("android: %s with %s (%s) -> %d %s", rom, lib, pkg, rc, out);
+		if (strstr(out, "does not exist")) continue;	/* (not this one) */
+		if (strstr(out, "Error") || (!strstr(out, "Starting") && rc != 0)) {
+			snfmt(msg, mn, "RetroArch didn't start: %.200s", out[0] ? out : "no answer from Android");
+			return 0;
+		}
+		return 1;
+	}
+	sncpy(msg, "To play games here, install RetroArch for Android (retroarch.com, the 64-bit version), open it once and allow it to see your files.", mn);
+	return 0;
+}
 
 static void start_server(void) {
 	/* started again after a game: the server and the page's connection carry over */
@@ -515,8 +661,10 @@ static void report(void) {
 	ws_text("t %d %d %.2f %.2f %d", ui_tab(), music_is_playing(), n ? s[n / 2] : 0.0, n ? s[n * 95 / 100] : 0.0, n);
 }
 
-/* --unpack CARD_DIR DEST: lays out the test card (tools/webcard.py's
- * card/index.json) under DEST, keeping files that are already there */
+/* --unpack CARD_DIR DEST [--no-stand-ins]: lays out the test card
+ * (tools/webcard.py's card/index.json) under DEST, keeping files that are
+ * already there. --no-stand-ins: without the pretend games and emulators
+ * (a card RetroArch plays real games from) */
 #include "../third_party/cJSON.h"
 static int b64v(int c) {
 	if (c >= 'A' && c <= 'Z') return c - 'A';
@@ -524,7 +672,7 @@ static int b64v(int c) {
 	if (c >= '0' && c <= '9') return c - '0' + 52;
 	return c == '+' ? 62 : c == '/' ? 63 : -1;
 }
-static int unpack_card(const char *src, const char *dest) {
+static int unpack_card(const char *src, const char *dest, int stand_ins) {
 	char p[1024];
 	snfmt(p, sizeof p, "%s/index.json", src);
 	char *txt = file_read_all(p, NULL);
@@ -535,6 +683,9 @@ static int unpack_card(const char *src, const char *dest) {
 	for (cJSON *it = idx->child; it; it = it->next) {
 		const char *path = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(it, "p"));
 		if (!path) continue;
+		if (!stand_ins && ((str_starts_with(path, "/mmc/Roms/") && !str_starts_with(path, "/mmc/Roms/VIDEOS/")) ||
+		                   str_starts_with(path, "/mmc/CFW/retroarch/")))
+			continue;
 		char out[1200];
 		snfmt(out, sizeof out, "%s%s", dest, path);
 		if (file_exists(out)) { kept++; continue; }
@@ -568,7 +719,9 @@ static int unpack_card(const char *src, const char *dest) {
 }
 
 int main(int argc, char **argv) {
-	if (argc == 4 && !strcmp(argv[1], "--unpack")) return unpack_card(argv[2], argv[3]);
+	if ((argc == 4 || argc == 5) && !strcmp(argv[1], "--unpack"))
+		return unpack_card(argv[2], argv[3], !(argc == 5 && !strcmp(argv[4], "--no-stand-ins")));
+	if (argc == 2 && !strcmp(argv[1], "--card-path")) { char c[512]; card_dir(c, sizeof c, 1); puts(c); return 0; }
 	signal(SIGPIPE, SIG_IGN);
 	plat_init();
 	start_server();
@@ -590,9 +743,17 @@ int main(int argc, char **argv) {
 	int st = ui_state();
 	app_end();
 	if (st != UI_LAUNCH) { ws_text("q"); return 0; }
-	/* show what would start, wait for "Back to Zappo", then start afresh -
-	 * as the handheld does after a game - keeping the page connected */
-	ws_text("l %s", launched);
+	/* on Android: the game in RetroArch (the page waits, and says "back" when
+	 * it's seen again); elsewhere, or if it can't: the page shows what would
+	 * start. Then Zappo starts afresh - as the handheld does after a game -
+	 * keeping the page connected */
+	char gname[256], gcore[96], why[400];
+	if (on_android() && android_play(launched, gname, sizeof gname, gcore, sizeof gcore, why, sizeof why))
+		ws_text("g playing\t%s\t%s", gname, gcore);
+	else if (on_android())
+		ws_text("g failed\t%s\t%s\t%s", gname, gcore, why);
+	else
+		ws_text("l %s", launched);
 	while (!back_pressed && csock >= 0) pump_network(100);
 	while (csock < 0) pump_network(500); /* the page went away: wait for it */
 	char e[32];

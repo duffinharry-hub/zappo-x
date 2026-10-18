@@ -285,10 +285,39 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
   }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
+  /* Android tablet: the game went to RetroArch (or a film to the video
+     player). Coming back to this page afterwards returns to Zappo by itself. */
+  let playing = false, wentAway = false;
+  function showPlaying([state, name, core, why], back) {
+    const title = esc((name || "").replace(/\.[^.]+$/, ""));
+    const body = ovl.firstElementChild;
+    const film = core === "ffmpeg";
+    if (state === "playing") {
+      body.innerHTML = film
+        ? `<div><h2>Now showing</h2><p><b>${title}</b> is playing in the tablet's video player.</p><p>Close it to come back here.</p><button class="go">Back to Zappo</button></div>`
+        : `<div><h2>Game time</h2><p><b>${title}</b> is starting in RetroArch (${esc(core)}).</p><p>Quit RetroArch to come back here.</p><button class="go">Back to Zappo</button>` +
+          `<p style="margin-top:18px;font-size:13px">Nothing opened? In Android's Settings &gt; Apps &gt; Termux, allow <b>Appear on top</b>, then try again.<br>` +
+          `RetroArch says it can't load the core? In RetroArch: Load Core &gt; Download a Core &gt; ${esc(core)}.</p></div>`;
+      playing = true; wentAway = false;
+    } else {
+      body.innerHTML = `<div><h2>Couldn't start ${title || "it"}</h2><p>${esc(why || "")}</p><button class="go">Back to Zappo</button></div>`;
+      playing = false;
+    }
+    ovl.hidden = false;
+    ovlAction = () => { ovlAction = null; playing = false; ovl.hidden = true; if (back) back(); };
+    body.querySelector(".go").onclick = () => ovlAction && ovlAction();
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (!playing) return;
+    if (document.visibilityState === "hidden") wentAway = true;
+    else if (wentAway && ovlAction) setTimeout(() => ovlAction && ovlAction(), 300);	/* back from the game */
+  });
+
   /* --------------------------- full speed: Zappo runs natively (Termux) */
   /* zappo-tablet serves this page and streams the picture over a WebSocket:
      "F" + rows of RGB565, "A" + sound; text: "t tab music median p95 n",
-     "l command" (a game was chosen), "a rate ch", "b level", "q". */
+     "l command" (a game was chosen), "g playing|failed<TAB>name<TAB>core<TAB>why"
+     (Android: it went to RetroArch), "a rate ch", "b level", "q". */
   class NativeEngine {
     constructor() {
       this.running = false; this.frameMs = []; this.stats = null; this._tab = 2; this._music = 0;
@@ -300,7 +329,7 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
       const ws = new WebSocket("ws://" + location.host + "/ws");
       ws.binaryType = "arraybuffer";
       this.ws = ws;
-      ws.onopen = () => { this.running = true; ovl.hidden = true; ovlAction = null; ws.send("full"); for (const [b, set] of held) if (set.size) this.key(b, 1); };
+      ws.onopen = () => { this.running = true; ovl.hidden = true; ovlAction = null; playing = false; ws.send("full"); for (const [b, set] of held) if (set.size) this.key(b, 1); };
       ws.onclose = () => {
         this.running = false;
         if (ovl.hidden || !ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo X stopped</h2><p>Start it again in Termux:</p><p><code>~/zappo-x/tablet/run.sh</code></p></div>'; }
@@ -332,6 +361,7 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
         const [tab, music, med, p95, n] = rest.map(Number);
         this._tab = tab; this._music = music; this.stats = { med, p95, n };
       } else if (k === "l") { showLaunch(m.slice(2), () => this.ws.send("back")); }
+      else if (k === "g") { showPlaying(m.slice(2).split("\t"), () => { if (this.running) this.ws.send("back"); }); }
       else if (k === "a") { if (rest[0] === "end") sound.stop(false); else { sound.wake(); sound.open(+rest[0], +rest[1]); } }
       else if (k === "b") { const lv = +rest[0]; $("screen").style.filter = lv <= 0 ? "brightness(0)" : `brightness(${(0.35 + lv * 0.065).toFixed(2)})`; }
       else if (k === "q") { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo closed</h2></div>'; }
