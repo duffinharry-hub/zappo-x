@@ -88,20 +88,35 @@ def load():
         return None
 
 
+def twin_alive():
+    try:
+        os.kill(int(open(os.path.join(RUN, "twin.pid")).read()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def record():
+    """follows the light channel while the twin runs (run.sh starts this)"""
     log = open(os.path.join(RUN, "led.log"), "a")
+    for _ in range(100):            # QEMU writes twin.pid as it starts
+        if twin_alive():
+            break
+        time.sleep(0.1)
     while True:
         try:
             s = socket.socket(socket.AF_UNIX)
             s.connect(os.path.join(RUN, "led.sock"))
         except OSError:
+            if not twin_alive():
+                return
             time.sleep(0.5)
             continue
         buf = b""
         while True:
             d = s.recv(4096)
             if not d:
-                break
+                break  # the twin stopped (or restarted)
             frames, buf = parse(buf + d)
             for f in frames:
                 st = decode(f)
@@ -110,6 +125,8 @@ def record():
                 os.replace(tmp, STATE)
                 log.write("%.3f %s\n" % (st["time"], f.hex()))
                 log.flush()
+        if not twin_alive():
+            return
         time.sleep(0.5)
 
 

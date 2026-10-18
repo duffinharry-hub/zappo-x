@@ -1,0 +1,13 @@
+#!/bin/sh
+# Zappo X twin: stands in for the RG40XX H's "brightness" tool (which talks to
+# the Allwinner display driver).  The backlight level, 0-255, is kept in
+# /var/run/twin-backlight; twinctl.py's handheld pictures dim the screen by it.
+F=/var/run/twin-backlight
+S=/userdata/system/.twin-backlight
+get() { cat "$F" 2>/dev/null || cat "$S" 2>/dev/null || echo 179; }
+case "$1" in
+  get) get ;;
+  set) v=${2:-179}; [ "$v" -lt 0 ] && v=0; [ "$v" -gt 255 ] && v=255; echo "$v" > "$F"; echo "Brightness set to: $v" >&2 ;;
+  store) get > "$S"; echo "Brightness stored: $(get)" >&2 ;;
+  *) echo "Usage: $0 [get|set|store|help]" ;;
+esac

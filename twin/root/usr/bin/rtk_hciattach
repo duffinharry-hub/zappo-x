@@ -1,0 +1,14 @@
+#!/bin/sh
+# Zappo X device twin: stands in for Realtek's rtk_hciattach.  On the RG40XX H
+# that attaches the Bluetooth chip on ttyS1 and stays running; stopping it
+# (S32bluetooth stop: killall rtk_hciattach) takes the chip away.  On the twin
+# it runs zappo-twin-bt, the pretend chip, the same way.
+D=/tmp/zappo-twin
+mkdir -p $D
+if [ -f $D/bt.pid ] && kill -0 "$(cat $D/bt.pid)" 2>/dev/null; then
+  kill "$(cat $D/bt.pid)"; sleep 1
+fi
+/usr/bin/zappo-twin-bt &
+echo $! > $D/bt.pid
+trap 'kill $(cat $D/bt.pid) 2>/dev/null; rm -f $D/bt.pid; exit 0' TERM INT HUP
+wait

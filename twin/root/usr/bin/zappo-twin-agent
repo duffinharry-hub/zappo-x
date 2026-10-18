@@ -4,6 +4,14 @@
 Listens on the twin's control channel (virtio port "zappo.twin") for one
 JSON request per line from twinctl.py outside, and answers with one JSON line:
   {"id": 1, "do": "run", "cmd": "ls /userdata"}  -> {"id": 1, "rc": 0, "out": "..."}
+Requests:
+  run    {"cmd": "..."}                         a shell command
+  pad    {"press": "a"} / {"down": "l1"} / {"up": "l1"} / {"stick": "L", "x": -1..1, "y": -1..1}
+         the RG40XX H's buttons, d-pad and sticks, from a gamepad that looks like
+         the handheld's own ("Anbernic RG40XX-H Controller": same name, ids, codes)
+  power  {"capacity": 0..100, "charging": 0/1}  the battery and the charger
+  bt     {"press": "a"} / {"down"/"up": ...} / {"stick": "L", "x", "y"} / {"cmd": "wake"|"status"}
+         the pretend Bluetooth pad (zappo-twin-bt), once it is paired and connected
 Only exists inside the twin; nothing of it ships on a real handheld.
 """
 import json
@@ -35,10 +43,157 @@ def run(req):
         return {"rc": -1, "out": (e.stdout or b"").decode("utf-8", "replace") + "\n[timed out]"}
 
 
-HANDLERS = {"run": run, "ping": lambda req: {"rc": 0, "out": "pong"}}
+# ---------------------------------------------------------------- buttons
+# From Knulli's es_input.cfg for "Anbernic RG40XX-H Controller" (GUID
+# 19000000010000000100000000010000 = bus 0x19, vendor 1, product 1, version
+# 0x100): buttons by evdev code, d-pad on hat 0, sticks on ABS_Z/RX (left) and
+# ABS_RY/RZ (right).  SDL numbers buttons from code 288 up and the handheld's
+# "a" is SDL button 3, so three lower buttons exist (288-290 here; what they are
+# on the handheld is on the arrival checklist).
+BUTTONS = {"a": 304, "b": 305, "y": 306, "x": 307, "l1": 308, "r1": 309, "select": 310,
+           "start": 311, "menu": 312, "l3": 313, "l2": 314, "r2": 315, "r3": 316}
+HAT = {"up": (17, -1), "down": (17, 1), "left": (16, -1), "right": (16, 1)}
+SIDE_KEYS = {"volup": 115, "voldown": 114, "power": 116}
+pad = keys = None
+
+
+def make_pad():
+    global pad, keys
+    if pad:
+        return
+    from evdev import UInput, AbsInfo, ecodes as e
+    stick = AbsInfo(value=0, min=-2048, max=2047, fuzz=16, flat=64, resolution=0)
+    hat = AbsInfo(value=0, min=-1, max=1, fuzz=0, flat=0, resolution=0)
+    caps = {e.EV_KEY: [288, 289, 290] + sorted(BUTTONS.values()),
+            e.EV_ABS: [(e.ABS_Z, stick), (e.ABS_RX, stick), (e.ABS_RY, stick), (e.ABS_RZ, stick),
+                       (e.ABS_HAT0X, hat), (e.ABS_HAT0Y, hat)]}
+    pad = UInput(caps, name="Anbernic RG40XX-H Controller", vendor=1, product=1, version=0x100, bustype=0x19)
+    keys = UInput({e.EV_KEY: sorted(SIDE_KEYS.values())}, name="gpio-keys", bustype=0x19)
+
+
+def pad_event(name, down):
+    from evdev import ecodes as e
+    if name in BUTTONS:
+        pad.write(e.EV_KEY, BUTTONS[name], 1 if down else 0)
+        pad.syn()
+    elif name in HAT:
+        code, v = HAT[name]
+        pad.write(e.EV_ABS, code, v if down else 0)
+        pad.syn()
+    elif name in SIDE_KEYS:
+        keys.write(e.EV_KEY, SIDE_KEYS[name], 1 if down else 0)
+        keys.syn()
+    else:
+        raise ValueError("no such button: %s" % name)
+
+
+def do_pad(req):
+    from evdev import ecodes as e
+    make_pad()
+    if "press" in req:
+        pad_event(req["press"], True)
+        time.sleep(req.get("ms", 90) / 1000.0)
+        pad_event(req["press"], False)
+    elif "down" in req:
+        pad_event(req["down"], True)
+    elif "up" in req:
+        pad_event(req["up"], False)
+    elif "stick" in req:
+        ax, ay = (e.ABS_Z, e.ABS_RX) if req["stick"].upper() == "L" else (e.ABS_RY, e.ABS_RZ)
+        pad.write(e.EV_ABS, ax, int(max(-1, min(1, req.get("x", 0))) * 2047))
+        pad.write(e.EV_ABS, ay, int(max(-1, min(1, req.get("y", 0))) * 2047))
+        pad.syn()
+    return {"rc": 0, "out": "ok"}
+
+
+# ---------------------------------------------------------------- power
+PSY = "/sys/class/power_supply/"
+
+
+def do_power(req):
+    if "charging" in req:
+        open(PSY + "axp2202-usb/online", "w").write("1" if req["charging"] else "0")
+    if "capacity" in req:
+        open(PSY + "axp2202-battery/capacity", "w").write(str(int(req["capacity"])))
+    st = open(PSY + "axp2202-battery/status").read().strip()
+    cap = open(PSY + "axp2202-battery/capacity").read().strip()
+    return {"rc": 0, "out": "%s%% %s" % (cap, st)}
+
+
+# ---------------------------------------------------------------- bluetooth pad
+# zappo-twin-bt's pad reports 16 buttons, a hat and four axes; a plain HID
+# gamepad, which Linux numbers BTN_SOUTH (button 1) onwards.
+BT_BUTTONS = {"a": 1, "b": 2, "x": 4, "y": 5, "l1": 7, "r1": 8, "l2": 9, "r2": 10,
+              "select": 11, "start": 12, "menu": 13, "l3": 14, "r3": 15}
+BT_HAT = {"up": 0, "right": 2, "down": 4, "left": 6}
+bt_state = {"buttons": 0, "hat": 8, "axes": [128, 128, 128, 128]}
+
+
+def bt_send(line):
+    import socket
+    me = "/tmp/zappo-twin/agent-bt.sock"
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        os.unlink(me)
+    except OSError:
+        pass
+    s.bind(me)
+    s.settimeout(3)
+    try:
+        s.sendto(line.encode(), "/tmp/zappo-twin/bt.sock")
+        return s.recv(4096).decode()
+    except OSError as e:
+        return "no Bluetooth on the twin yet (is it switched on?): %s" % e
+    finally:
+        s.close()
+
+
+def bt_report():
+    st = bt_state
+    b = bytes([st["buttons"] & 0xFF, st["buttons"] >> 8, st["hat"]] + st["axes"])
+    return bt_send("pad " + b.hex())
+
+
+def bt_set(name, down):
+    if name in BT_BUTTONS:
+        bit = 1 << (BT_BUTTONS[name] - 1)
+        bt_state["buttons"] = (bt_state["buttons"] | bit) if down else (bt_state["buttons"] & ~bit)
+    elif name in BT_HAT:
+        bt_state["hat"] = BT_HAT[name] if down else 8
+    else:
+        raise ValueError("no such button: %s" % name)
+    return bt_report()
+
+
+def do_bt(req):
+    if "cmd" in req:
+        out = bt_send(req["cmd"])
+    elif "press" in req:
+        out = bt_set(req["press"], True)
+        time.sleep(req.get("ms", 90) / 1000.0)
+        out = bt_set(req["press"], False)
+    elif "down" in req:
+        out = bt_set(req["down"], True)
+    elif "up" in req:
+        out = bt_set(req["up"], False)
+    elif "stick" in req:
+        i = 0 if req["stick"].upper() == "L" else 2
+        for k, v in ((i, req.get("x", 0)), (i + 1, req.get("y", 0))):
+            bt_state["axes"][k] = int(round(128 + max(-1, min(1, v)) * 127))
+        out = bt_report()
+    else:
+        out = "?"
+    return {"rc": 0 if out.startswith("ok") or "cmd" in req else 1, "out": out.strip()}
+
+
+HANDLERS = {"run": run, "pad": do_pad, "power": do_power, "bt": do_bt, "ping": lambda req: {"rc": 0, "out": "pong"}}
 
 
 def main():
+    try:
+        make_pad()          # present from the start, like the handheld's own controls
+    except Exception as e:  # /dev/uinput not there yet: made on first use
+        sys.stderr.write("pad later: %s\n" % e)
     dev = find_port()
     while not os.path.exists(dev):
         time.sleep(0.2)

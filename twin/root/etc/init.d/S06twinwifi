@@ -1,0 +1,37 @@
+#!/bin/sh
+# Zappo X device twin: Wi-Fi.  The RG40XX H has a Wi-Fi radio and no cable
+# network, so the twin is set up the same way: two simulated radios
+# (mac80211_hwsim) - wlan0 stays with the handheld; wlan1 and the twin's
+# network cable (eth0) go into a separate "router" world, where
+# zappo-twin-router runs the network "ZappoTwin" (password zappo1234) and
+# shares its line.  From outside, 127.0.0.1:18080/18022 reach the handheld's
+# ports 80/22 (and 8640).
+case "$1" in
+  start) ;;
+  *) exit 0 ;;
+esac
+printf "Starting the twin's Wi-Fi router: "
+mkdir -p /var/run/netns
+ip netns add router 2>/dev/null
+R="ip netns exec router"
+iw phy phy1 set netns name router 2>/dev/null || $R ip link show wlan1 >/dev/null 2>&1 \
+  || { echo "no second radio"; exit 0; }
+ip link set eth0 netns router 2>/dev/null
+$R ip link set lo up
+$R ip link set eth0 up
+$R ip addr add 10.0.2.15/24 dev eth0 2>/dev/null
+$R ip route add default via 10.0.2.2 2>/dev/null
+$R sh -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
+$R iptables -t nat -F
+$R iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+for p in 80 22 8640; do
+  $R iptables -t nat -A PREROUTING -i eth0 -p tcp --dport $p -j DNAT --to-destination 192.168.77.20:$p
+done
+[ -f /tmp/zappo-twin/router.pid ] && kill "$(cat /tmp/zappo-twin/router.pid)" 2>/dev/null
+(setsid /usr/bin/zappo-twin-router </dev/null >/dev/null 2>&1 &)
+# wait for the network to be on the air before the handheld starts looking
+n=0
+while ! grep -q AP-ENABLED /tmp/zappo-twin/hostapd.log 2>/dev/null && [ $n -lt 40 ]; do
+  sleep 0.5; n=$((n+1))
+done
+echo "OK (ZappoTwin)"

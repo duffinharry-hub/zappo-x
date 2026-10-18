@@ -1,0 +1,33 @@
+diff --git a/hw/audio/virtio-snd.c b/hw/audio/virtio-snd.c
+index 694bceb..456488a 100644
+--- a/hw/audio/virtio-snd.c
++++ b/hw/audio/virtio-snd.c
+@@ -34,6 +34,8 @@
+ static void virtio_snd_pcm_out_cb(void *data, int available);
+ static void virtio_snd_process_cmdq(VirtIOSound *s);
+ static void virtio_snd_pcm_flush(VirtIOSoundPCMStream *stream);
++static void virtio_snd_handle_tx_xfer(VirtIODevice *vdev, VirtQueue *vq);
++static void virtio_snd_handle_rx_xfer(VirtIODevice *vdev, VirtQueue *vq);
+ static void virtio_snd_pcm_in_cb(void *data, int available);
+ static void virtio_snd_unrealize(DeviceState *dev);
+ 
+@@ -639,6 +641,19 @@ static void virtio_snd_handle_pcm_release(VirtIOSound *s,
+         return;
+     }
+ 
++    /*
++     * The guest may have queued I/O messages that have not been taken off the
++     * tx/rx virtqueue yet: those queues are serviced apart from the control
++     * queue, so the release can arrive first.  Take them now so the flush
++     * below completes them too; left behind, they stay pending forever and the
++     * guest refuses its next prepare ("invalid I/O queue state").
++     */
++    if (stream->info.direction == VIRTIO_SND_D_OUTPUT) {
++        virtio_snd_handle_tx_xfer(VIRTIO_DEVICE(s), s->queues[VIRTIO_SND_VQ_TX]);
++    } else {
++        virtio_snd_handle_rx_xfer(VIRTIO_DEVICE(s), s->queues[VIRTIO_SND_VQ_RX]);
++    }
++
+     if (virtio_snd_pcm_get_io_msgs_count(stream)) {
+         /*
+          * virtio-v1.2-csd01, 5.14.6.6.5.1,

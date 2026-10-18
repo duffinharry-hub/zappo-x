@@ -1,0 +1,46 @@
+#!/bin/sh
+# Zappo X device twin: the Wi-Fi router, inside its own network world
+# ("router"): hostapd runs the WPA2 network ZappoTwin (password zappo1234) on
+# the second simulated radio, dnsmasq gives out addresses (the handheld always
+# 192.168.77.20), and the twin's network cable (eth0) is the router's line.
+# Knulli switches Wi-Fi on and off with rfkill, which reaches every radio, so
+# this keeps watching and switches the router's radio back on and restarts it.
+D=/tmp/zappo-twin
+R="ip netns exec router"
+mkdir -p $D
+echo $$ > $D/router.pid
+cat > $D/hostapd.conf <<CONF
+interface=wlan1
+driver=nl80211
+ssid=ZappoTwin
+hw_mode=g
+channel=6
+wpa=2
+wpa_passphrase=zappo1234
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+CONF
+alive() { [ -f "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
+n=0
+while true; do
+  n=$((n+1))
+  $R sh -c 'for k in /sys/class/rfkill/rfkill*; do [ "$(cat $k/name 2>/dev/null)" = phy1 ] && [ "$(cat $k/soft)" = 1 ] && echo 0 > $k/soft; done'
+  $R ip link set wlan1 up 2>/dev/null
+  $R ip addr add 192.168.77.1/24 dev wlan1 2>/dev/null
+  alive $D/hostapd.pid || $R hostapd -B -P $D/hostapd.pid $D/hostapd.conf >$D/hostapd.log 2>&1
+  alive $D/dnsmasq.pid || $R dnsmasq --interface=wlan1 --bind-interfaces --dhcp-range=192.168.77.50,192.168.77.150,12h \
+      --dhcp-host=02:00:00:00:00:00,192.168.77.20 --no-resolv --server=10.0.2.3 --dhcp-leasefile=$D/dnsmasq.leases \
+      --pid-file=$D/dnsmasq.pid --conf-file=/dev/null --log-facility=$D/dnsmasq.log
+  # if the handheld looked for its network before the router was up, connman
+  # gives up on it for a while; on a real handheld the network is already
+  # there, so nudge it: scan, or retry a network it has the password for
+  if [ $((n % 10)) -eq 3 ] && pidof connmand >/dev/null && ! ip -4 addr show wlan0 2>/dev/null | grep -q inet; then
+    S=$(connmanctl services 2>/dev/null | awk '/ ZappoTwin / {print $NF; exit}')
+    if [ -z "$S" ]; then
+      connmanctl scan wifi >/dev/null 2>&1
+    elif connmanctl services "$S" | grep -q "Favorite = True" && connmanctl services "$S" | grep -qE "State = (idle|failure)"; then
+      connmanctl connect "$S" >/dev/null 2>&1
+    fi
+  fi
+  sleep 2
+done

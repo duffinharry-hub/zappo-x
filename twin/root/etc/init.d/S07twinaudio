@@ -1,0 +1,16 @@
+#!/bin/sh
+# Zappo X device twin: sound.  Knulli's audio setup names the RG40XX H's own
+# codec; on the twin the sound card is QEMU's virtio card, so switch it on in
+# PipeWire and make it the default output (what plays ends up in run/audio.wav).
+case "$1" in start) ;; *) exit 0 ;; esac
+. /etc/profile.d/xdg.sh
+. /etc/profile.d/dbus.sh
+n=0
+while ! pactl list short cards 2>/dev/null | grep -q 'pci-0000_00_05'; do
+  n=$((n+1)); [ $n -gt 50 ] && exit 0; sleep 0.2
+done
+C=$(pactl list short cards | awk '/pci-0000_00_05/ {print $2; exit}')
+pactl set-card-profile "$C" output:stereo-fallback 2>/dev/null
+S=$(pactl list short sinks | awk '/pci-0000_00_05/ {print $2; exit}')
+[ -n "$S" ] && pactl set-default-sink "$S"
+echo "Twin sound: ${S:-none}"
