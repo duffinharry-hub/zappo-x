@@ -38,6 +38,16 @@ any app: full screen, sideways, no Termux, no address bar.
 - `sh ~/zappo-x/tablet/server.sh stop` stops it; `... status` says whether
   it's running.
 
+## Controllers
+
+A Bluetooth controller (Xbox, PlayStation, 8BitDo ...) works in Zappo X and
+in the games. In Zappo X its buttons go by what's printed on them: **A**
+confirms, **B** goes back (Settings > Controls > Confirm button swaps them).
+As soon as the controller is used, the on-screen buttons go away and the
+screen fills the tablet; touch the screen to bring them back.
+In games, RetroArch places buttons by position (as on a Nintendo pad); if A
+and B feel swapped in a game, swap them in RetroArch: Quick Menu > Controls.
+
 ## Playing games
 
 1. **RetroArch for Android**: get the 64-bit version from retroarch.com

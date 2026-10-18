@@ -61,8 +61,13 @@ static int back_pressed;
 static double render_ms[600];
 static int render_n;
 
-#define QN 64
+#define QN 256
 static struct { int b, down; } q[QN];
+/* what the page says each button is, and what Zappo has been told: if the
+ * queue ever fills, the differences are sent afterwards - a let-go is never
+ * lost, so nothing stays held down */
+static unsigned char want_down[B_COUNT], told_down[B_COUNT];
+static int resync;
 static int qh, qt;
 
 static uint64_t now_ms_(void) {
@@ -243,7 +248,9 @@ static void page_message(char *m) {
 	int b, d;
 	if (sscanf(m, "k %d %d", &b, &d) == 2 && b >= 0 && b < B_COUNT) {
 		int nt = (qt + 1) % QN;
+		want_down[b] = d != 0;
 		if (nt != qh) { q[qt].b = b; q[qt].down = d; qt = nt; }
+		else resync = 1;
 	} else if (!strcmp(m, "back")) {
 		back_pressed = 1;
 	} else if (!strcmp(m, "full")) {
@@ -537,15 +544,24 @@ void plat_set_input_map(const InputMap *m) { (void)m; }
 
 int plat_poll(InputEvent *ev) {
 	pump_network(0);
-	if (qh == qt) return 0;
+	int b, down;
+	if (qh != qt) {
+		b = q[qh].b;
+		down = q[qh].down;
+		qh = (qh + 1) % QN;
+	} else if (resync) {
+		for (b = 0; b < B_COUNT && told_down[b] == want_down[b]; b++) {}
+		if (b == B_COUNT) { resync = 0; return 0; }
+		down = want_down[b];
+	} else return 0;
+	told_down[b] = down != 0;
 	memset(ev, 0, sizeof *ev);
-	ev->button = q[qh].b;
-	ev->pressed = q[qh].down;
+	ev->button = b;
+	ev->pressed = down;
 	ev->raw_type = 1;
-	ev->raw_code = 300 + q[qh].b;
-	ev->raw_value = q[qh].down;
+	ev->raw_code = 300 + b;
+	ev->raw_value = down;
 	sncpy(ev->dev, "page", sizeof ev->dev);
-	qh = (qh + 1) % QN;
 	return 1;
 }
 

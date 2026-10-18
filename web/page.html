@@ -56,6 +56,14 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
 #turn { display: none; position: fixed; inset: 46px 0 0; place-items: center; text-align: center; color: var(--ink-dim); padding: 24px; }
 @media (orientation: portrait) and (max-width: 820px) { #turn { display: grid; } #stage { visibility: hidden; } }
 @media (display-mode: fullscreen), (display-mode: standalone) { #full, #install { display: none; } }
+/* a controller connected: just the screen, as big as it goes (touching the
+   screen brings the on-screen buttons back; the controller hides them again) */
+body.padmode { padding: 0; background: #000; }
+body.padmode .top { display: none; }
+body.padmode #stage { height: 100%; }
+body.padmode #dev { width: 640px; height: 480px; }
+body.padmode #dev > :not(#screen):not(#ovl) { display: none; }
+body.padmode canvas#screen, body.padmode .ovl { left: 0; top: 0; border-radius: 0; box-shadow: none; }
 </style>
 
 <div class="top">
@@ -106,9 +114,24 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
   /* ------------------------------------------------ fit the handheld */
   function fit() {
     const r = stage.getBoundingClientRect();
+    if (document.body.classList.contains("padmode")) {
+      const s = Math.min(r.width / 640, r.height / 480);
+      dev.style.transform = `translate(${-320 * s}px, ${-240 * s}px) scale(${s})`;
+      return;
+    }
     const s = Math.min(r.width / 1072, r.height / 504);
     dev.style.transform = `translate(${-532 * s}px, ${-250 * s}px) scale(${s})`;
   }
+  function padMode(on) {
+    if (document.body.classList.contains("padmode") === on) return;
+    document.body.classList.toggle("padmode", on);
+    fit();
+    /* full screen too, where the browser allows it (the installed app already is) */
+    if (on && !document.fullscreenElement && !matchMedia("(display-mode: fullscreen)").matches) {
+      try { const d = document.documentElement; (d.requestFullscreen || d.webkitRequestFullscreen).call(d).catch?.(() => {}); } catch (e) {}
+    }
+  }
+  addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") padMode(false); }, true);
   addEventListener("resize", fit); fit();
 
   /* ------------------------------------------------- the stick lights */
@@ -196,6 +219,8 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
   const sound = new Sound();
   const held = new Map();     /* button -> sources holding it */
   let z = null;
+  const sentDown = new Set();  /* buttons Zappo has been told are down */
+  const keyTime = new Map();  /* keyboard keys held: when last heard of */
   function press(b, down, src) {
     sound.wake();
     const set = held.get(b) || new Set();
@@ -204,11 +229,22 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
     held.set(b, set);
     const now = set.size > 0;
     if (was !== now) {
-      if (z && z.running && ovl.hidden) z.key(b, now);   /* not while a message is up */
+      /* presses wait while a message is up; a release always goes, so
+         nothing is left held down in Zappo */
+      if (z && z.running && (now ? ovl.hidden : sentDown.has(b))) { z.key(b, now); now ? sentDown.add(b) : sentDown.delete(b); }
       document.querySelectorAll(`.key[data-b="${b}"]`).forEach((k) => k.classList.toggle("on", now));
       if (now && !ovl.hidden && ovlAction && (b === 4 || b === 5 || b === 13)) ovlAction();
     }
   }
+  /* let go of everything (the page lost focus: no key-up would come) */
+  function releaseAll() {
+    for (const [b, set] of held) for (const src of [...set]) press(b, 0, src);
+    for (const k in stickState) delete stickState[k];
+    keyTime.clear();
+  }
+  addEventListener("blur", releaseAll);
+  addEventListener("pagehide", releaseAll);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") releaseAll(); });
   document.querySelectorAll(".key").forEach((k) => {
     const b = +k.dataset.b;
     k.addEventListener("pointerdown", (e) => { e.preventDefault(); k.setPointerCapture(e.pointerId); press(b, 1, "t" + e.pointerId); });
@@ -217,17 +253,38 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
   });
   const KEYS = { ArrowUp: 0, ArrowDown: 1, ArrowLeft: 2, ArrowRight: 3, KeyX: 4, Enter: 4, KeyZ: 5, Backspace: 5, KeyS: 6, KeyA: 7,
     KeyQ: 8, KeyW: 9, Digit1: 10, Digit2: 11, ShiftRight: 12, ShiftLeft: 12, Space: 13, Escape: 14, KeyM: 14 };
-  addEventListener("keydown", (e) => { const b = KEYS[e.code]; if (b !== undefined) { e.preventDefault(); if (!e.repeat) press(b, 1, "k" + e.code); } });
-  addEventListener("keyup", (e) => { const b = KEYS[e.code]; if (b !== undefined) press(b, 0, "k" + e.code); });
+  addEventListener("keydown", (e) => { const b = KEYS[e.code]; if (b !== undefined) { e.preventDefault(); keyTime.set(e.code, performance.now()); if (!e.repeat) press(b, 1, "k" + e.code); } });
+  addEventListener("keyup", (e) => { const b = KEYS[e.code]; if (b !== undefined) { keyTime.delete(e.code); press(b, 0, "k" + e.code); } });
+  /* a held key repeats; one that has gone quiet for a while without a
+     key-up (Android sends some controller moves as keys) is let go */
+  function keyWatch(t) {
+    for (const [code, when] of keyTime) if (t - when > 700) { keyTime.delete(code); press(KEYS[code], 0, "k" + code); }
+  }
   /* The two sticks, on screen: drag them.  Left stick = the d-pad; right
      stick left/right = L1/R1 (sections), up/down = L2/R2 (a page at a time). */
   const STICK = { L: [2, 3, 0, 1], R: [8, 9, 10, 11] };   /* left, right, up, down */
+  /* a stick is one direction at a time: it takes a firm push (more than
+     half way) to start, holds until it's nearly back in the middle, and only
+     changes direction for a clear push the other way - so it doesn't
+     flicker on and off (or stay on) near the edge */
+  const stickState = {};
   function stickDirs(side, x, y, src) {
     const [l, r, u, d] = STICK[side];
-    const m = Math.hypot(x, y) > 0.35;
-    const horiz = Math.abs(x) >= Math.abs(y);
-    press(l, m && horiz && x < 0 ? 1 : 0, src); press(r, m && horiz && x > 0 ? 1 : 0, src);
-    press(u, m && !horiz && y < 0 ? 1 : 0, src); press(d, m && !horiz && y > 0 ? 1 : 0, src);
+    const key = side + src, cur = stickState[key] ?? -1;
+    const mx = Math.abs(x), my = Math.abs(y), m = Math.max(mx, my);
+    const dirOf = (horiz) => (horiz ? (x < 0 ? l : r) : (y < 0 ? u : d));
+    let want = cur;
+    if (cur < 0) { if (m > 0.55) want = dirOf(mx >= my); }
+    else if (m < 0.3) want = -1;
+    else {
+      const horiz = cur === l || cur === r, along = horiz ? mx : my, across = horiz ? my : mx;
+      want = across > 0.55 && across > along + 0.25 ? dirOf(!horiz) : along >= 0.3 ? dirOf(horiz) : -1;
+    }
+    if (want !== cur) {
+      if (cur >= 0) press(cur, 0, src);
+      if (want >= 0) press(want, 1, src);
+      stickState[key] = want;
+    }
   }
   function knob(side, x, y) {
     const k = document.querySelector("#ring" + side + " .knob");
@@ -251,17 +308,22 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
 
   /* Bluetooth or USB controllers, by position: bottom = B, right = A, left = Y,
      top = X - the RG40XX H's own layout. */
-  const PAD = { 0: 5, 1: 4, 2: 7, 3: 6, 4: 8, 5: 9, 6: 10, 7: 11, 8: 12, 9: 13, 12: 0, 13: 1, 14: 2, 15: 3, 16: 14 };
+  /* a controller's buttons by what's printed on them: A confirms, B goes
+     back (Settings > Controls > Confirm button swaps them) */
+  const PAD = { 0: 4, 1: 5, 2: 6, 3: 7, 4: 8, 5: 9, 6: 10, 7: 11, 8: 12, 9: 13, 12: 0, 13: 1, 14: 2, 15: 3, 16: 14 };
   function pollPads() {
     let pads = [];
     try { pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []; } catch (e) { return; }
     $("pad").hidden = !pads.length;
+    if (!pads.length) padMode(false);
     if (pads.length) $("pad").textContent = "🎮 " + pads[0].id.replace(/\s*\(.*$/, "").slice(0, 26);
     pads.forEach((p, pi) => {
+      /* a controller being used: the screen alone, full size */
+      if (p.buttons.some((btn) => btn && btn.pressed) || p.axes.some((a) => Math.abs(a) > 0.55)) padMode(true);
       for (const [i, b] of Object.entries(PAD)) { const btn = p.buttons[+i]; if (btn) press(b, btn.pressed ? 1 : 0, "p" + pi + "-" + i); }
       const ax = p.axes[0] || 0, ay = p.axes[1] || 0, bx = p.axes[2] || 0, by = p.axes[3] || 0;
-      stickDirs("L", Math.abs(ax) > 0.5 ? ax : 0, Math.abs(ay) > 0.5 ? ay : 0, "pl" + pi);
-      stickDirs("R", Math.abs(bx) > 0.5 ? bx : 0, Math.abs(by) > 0.5 ? by : 0, "pr" + pi);
+      stickDirs("L", ax, ay, "pl" + pi);
+      stickDirs("R", bx, by, "pr" + pi);
       if (pi === 0) { knob("L", ax, ay); knob("R", bx, by); }
     });
   }
@@ -525,6 +587,7 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
   let lastSave = 0, fpsT = 0, fpsN = 0;
   function loop(t) {
     pollPads();
+    keyWatch(t);
     if (z && z.running) {
       if (!z.frame()) {
         persist();
