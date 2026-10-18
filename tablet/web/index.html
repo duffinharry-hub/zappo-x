@@ -34,7 +34,7 @@ body {
 .tbtn { font: 600 13px Figtree, sans-serif; color: var(--ink); background: #ffffff12; border: 1px solid #ffffff1f; border-radius: 10px;
   padding: 7px 12px; cursor: pointer; white-space: nowrap; }
 .tbtn:active { background: #ffffff26; }
-#stage { position: relative; height: calc(100% - 46px - 8px); display: grid; place-items: center; }
+#stage { position: fixed; top: 46px; bottom: 8px; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); }
 #dev { position: absolute; left: 50%; top: 50%; width: 1064px; height: 500px; transform-origin: 0 0; }
 canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height: 480px; background: #000; border-radius: 10px;
   box-shadow: 0 0 0 1px #ffffff14, 0 18px 50px #000c; }
@@ -64,7 +64,7 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
    screen brings the on-screen buttons back; the controller hides them again) */
 body.padmode { padding: 0; background: #000; }
 body.padmode .top { display: none; }
-body.padmode #stage { height: 100%; }
+body.padmode #stage { top: 0; bottom: 0; left: 0; right: 0; }
 body.padmode #dev { width: 640px; height: 480px; }
 body.padmode #dev > :not(#screen):not(#ovl) { display: none; }
 body.padmode canvas#screen, body.padmode .ovl { left: 0; top: 0; border-radius: 0; box-shadow: none; }
@@ -648,6 +648,7 @@ window.ZAPPO_NATIVE = true;
     if (document.body.classList.contains("padmode") === on) return;
     document.body.classList.toggle("padmode", on);
     fit();
+    requestAnimationFrame(fit);
     /* full screen too, where the browser allows it (the installed app already is) */
     if (on && !document.fullscreenElement && !matchMedia("(display-mode: fullscreen)").matches) {
       try { const d = document.documentElement; (d.requestFullscreen || d.webkitRequestFullscreen).call(d).catch?.(() => {}); } catch (e) {}
@@ -655,6 +656,12 @@ window.ZAPPO_NATIVE = true;
   }
   addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") padMode(false); }, true);
   addEventListener("resize", fit); fit();
+  addEventListener("fullscreenchange", () => requestAnimationFrame(fit));
+  if (window.visualViewport) visualViewport.addEventListener("resize", fit);
+  /* (the size can settle after a switch between full screen, the app and
+     the browser without a resize event: check now and then) */
+  let fitKey = "";
+  setInterval(() => { const r = stage.getBoundingClientRect(), k = r.width + "x" + r.height + document.body.className; if (k !== fitKey) { fitKey = k; fit(); } }, 400);
 
   /* ------------------------------------------------- the stick lights */
   /* The default planned for Zappo X: the rings take the colour of the section
@@ -796,11 +803,11 @@ window.ZAPPO_NATIVE = true;
     const mx = Math.abs(x), my = Math.abs(y), m = Math.max(mx, my);
     const dirOf = (horiz) => (horiz ? (x < 0 ? l : r) : (y < 0 ? u : d));
     let want = cur;
-    if (cur < 0) { if (m > 0.55) want = dirOf(mx >= my); }
-    else if (m < 0.3) want = -1;
+    if (cur < 0) { if (m > 0.6) want = dirOf(mx >= my); }
+    else if (m < 0.38) want = -1;
     else {
       const horiz = cur === l || cur === r, along = horiz ? mx : my, across = horiz ? my : mx;
-      want = across > 0.55 && across > along + 0.25 ? dirOf(!horiz) : along >= 0.3 ? dirOf(horiz) : -1;
+      want = across > 0.6 && across > along + 0.25 ? dirOf(!horiz) : along >= 0.38 ? dirOf(horiz) : -1;
     }
     if (want !== cur) {
       if (cur >= 0) press(cur, 0, src);
@@ -878,13 +885,18 @@ window.ZAPPO_NATIVE = true;
     const title = esc((name || "").replace(/\.[^.]+$/, ""));
     const body = ovl.firstElementChild;
     const film = core === "ffmpeg";
-    if (state === "playing") {
+    if (state === "starting") {
+      body.innerHTML = `<div><h2>Starting RetroArch…</h2><p>One moment.</p><button class="go">Back to Zappo</button></div>`;
+      playing = true; wentAway = false;
+    } else if (state === "playing") {
       body.innerHTML = film
         ? `<div><h2>Now showing</h2><p><b>${title}</b> is playing in the tablet's video player.</p><p>Close it to come back here.</p><button class="go">Back to Zappo</button></div>`
-        : `<div><h2>Game time</h2><p><b>${title}</b> is starting in RetroArch (${esc(core)}).</p><p>Quit RetroArch to come back here.</p><button class="go">Back to Zappo</button>` +
-          `<p style="margin-top:18px;font-size:13px">Nothing opened? In Android's Settings &gt; Apps &gt; Termux, allow <b>Appear on top</b>, then try again.<br>` +
-          `RetroArch says it can't load the core? In RetroArch: Load Core &gt; Download a Core &gt; ${esc(core)}.</p></div>`;
-      playing = true; wentAway = false;
+        : `<div><h2>${core === "menu" ? "RetroArch" : "Game time"}</h2><p>${core === "menu" ? "RetroArch's own menu is opening." : `<b>${title}</b> is starting in RetroArch (${esc(core)}).`}</p>` +
+          `<p>Quit RetroArch to come back here.</p><button class="go">Back to Zappo</button>` +
+          `<p style="margin-top:18px;font-size:13px">Nothing opened? In Android's Settings &gt; Apps &gt; Termux, allow <b>Appear on top</b>, then try again.` +
+          (core === "menu" ? "" : `<br>RetroArch says it can't load the core? In RetroArch: Load Core &gt; Download a Core &gt; ${esc(core)}.`) + `</p></div>`;
+      if (!playing) wentAway = false;	/* (gone already, while it was starting: that counts) */
+      playing = true;
     } else {
       body.innerHTML = `<div><h2>Couldn't start ${title || "it"}</h2><p>${esc(why || "")}</p><button class="go">Back to Zappo</button></div>`;
       playing = false;
@@ -1107,9 +1119,20 @@ window.ZAPPO_NATIVE = true;
   try { navigator.getBattery && navigator.getBattery().then((b) => { const u = () => { battery.level = Math.round(b.level * 100); battery.charging = b.charging ? 1 : 0; }; u(); b.onlevelchange = b.onchargingchange = u; }).catch(() => {}); } catch (e) {}
 
   let lastSave = 0, fpsT = 0, fpsN = 0;
+  /* Zappo repeats a held direction only while the page keeps saying it's
+     still held: if the page stalls for a moment, a let-go that comes late
+     can't turn into extra steps */
+  let pingAt = 0, pingMask = -1;
+  function heldPing(t) {
+    if (!z || !z.running || !z.ws) return;
+    let mask = 0;
+    for (const [b, set] of held) if (set.size && sentDown.has(b)) mask |= 1 << b;
+    if (mask !== pingMask || (mask && t - pingAt > 50)) { pingMask = mask; pingAt = t; z.ws.send("h " + mask); }
+  }
   function loop(t) {
     pollPads();
     keyWatch(t);
+    if (NATIVE) heldPing(t);
     if (z && z.running) {
       if (!z.frame()) {
         persist();

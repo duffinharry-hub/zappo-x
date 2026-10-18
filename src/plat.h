@@ -65,6 +65,9 @@ void plat_present(void);
 int plat_has_vsync(void);
 void plat_set_input_map(const InputMap *m);
 int plat_poll(InputEvent *ev);
+/* a held button may repeat now (the tablet: only while its page keeps saying
+ * it's still held; everywhere else, always) */
+int plat_button_alive(int button);
 void plat_wait(int timeout_ms);
 uint64_t plat_ticks(void);
 int plat_is_host(void);

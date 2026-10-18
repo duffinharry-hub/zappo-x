@@ -29,6 +29,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* Sorting a sent folder of several games one by one (the tablet for now: the
+ * handheld's build stays as it is until it's tried on the real RG40XX H). */
+#ifdef ZAPPO_TABLET
+#define SORT_COLLECTIONS 1
+#endif
+
 /* ------------------------------------------------------------------ tables */
 
 static const struct { const char *ext, *code; } EXT[] = {
@@ -304,6 +310,9 @@ static const char *sniff_zip(const char *path) {
 			const char *base = path_base(names.v[i]);
 			if (is_ignored(base)) continue;
 			const char *c = ext_code(path_ext(base));
+#ifdef SORT_COLLECTIONS
+			if (c && !strcmp(c, "VIDEOS")) continue;	/* (films in a .zip: not playable as they are) */
+#endif
 			if (!c) continue;
 			known++;
 			if (!code) code = c;
@@ -418,7 +427,7 @@ static int guess_file(const char *path, int allow_bios) {
 static int guess_folder_contents_d(const char *dir, int depth) {
 	DIR *d = opendir(dir);
 	if (!d) return -1;
-	int votes[512] = {0}, best = -1, disc = -1, songs = 0, games = 0, sub_music = 0, sub_games = 0;
+	int votes[512] = {0}, best = -1, disc = -1, songs = 0, games = 0, sub_music = 0, sub_games = 0, sub_sys = -1, sub_mixed = 0;
 	struct dirent *e;
 	while ((e = readdir(d))) {
 		if (e->d_name[0] == '.') continue;
@@ -429,7 +438,11 @@ static int guess_folder_contents_d(const char *dir, int depth) {
 			if (depth < 1) {
 				int s = guess_folder_contents_d(p, depth + 1);
 				if (s == IMPORT_TO_MUSIC) sub_music++;
-				else if (s >= 0) sub_games++;
+				else if (s >= 0) {
+					sub_games++;
+					if (sub_sys < 0) sub_sys = s;
+					else if (s != sub_sys) sub_mixed = 1;
+				}
 			}
 			continue;
 		}
@@ -444,20 +457,30 @@ static int guess_folder_contents_d(const char *dir, int depth) {
 	}
 	closedir(d);
 	if (songs > games || (!songs && !games && sub_music && !sub_games)) return IMPORT_TO_MUSIC;
+#ifdef SORT_COLLECTIONS
+	/* a game in folders of its own ("Disc 1", "Disc 2") */
+	if (!games && !songs && sub_games && !sub_mixed) return sub_sys;
+#else
+	(void)sub_sys; (void)sub_mixed;
+#endif
 	return disc >= 0 ? disc : best;
 }
 
 static int guess_folder_contents(const char *dir) { return guess_folder_contents_d(dir, 0); }
 
-int import_guess(const char *path, int is_dir) {
-	if (!is_dir) return guess_file(path, 1);
-	const char *name = path_base(path);
+/* where a folder goes by its name alone (BIOS, Music, GBA ...), or -1 */
+static int folder_by_name(const char *name) {
 	if (str_ieq(name, "BIOS") || str_ieq(name, "Machines") || str_ieq(name, "Databases") || str_ieq(name, "neocd") ||
 	    str_ieq(name, "keropi") || str_ieq(name, "np2kai") || str_ieq(name, "quasi88"))
 		return IMPORT_TO_BIOS;
 	if (is_music_folder_name(name)) return IMPORT_TO_MUSIC;
-	int s = sys_from_folder_name(name);
-	if (s >= 0) return s;
+	return sys_from_folder_name(name);
+}
+
+int import_guess(const char *path, int is_dir) {
+	if (!is_dir) return guess_file(path, 1);
+	int s = folder_by_name(path_base(path));
+	if (s != -1) return s;
 	return guess_folder_contents(path);
 }
 
@@ -704,6 +727,75 @@ static const char README[] =
 	"Anything Zappo can't place stays here and appears as \"Import\" in the\r\n"
 	"Consoles list on the handheld, where you can choose the console.\r\n";
 
+#ifdef SORT_COLLECTIONS
+/* A folder that holds several games (a whole collection sent at once, maybe
+ * for different consoles) rather than one game (a disc set, a ScummVM game,
+ * an album): its games are sorted one by one instead of moving it whole. */
+static int is_disc(const char *path) {
+	const char *e = path_ext(path);
+	return str_ieq(e, "cue") || str_ieq(e, "chd") || str_ieq(e, "m3u") || str_ieq(e, "pbp") || str_ieq(e, "iso") || str_ieq(e, "bin");
+}
+/* "Disc 2", "CD1", "Disk 3 of 3": one disc of a game, in a folder of its own */
+static int is_disc_folder(const char *name) {
+	static const char *W[] = {"disc", "disk", "cd"};
+	for (int i = 0; i < ARRAY_LEN(W); i++) {
+		size_t l = strlen(W[i]);
+		if (strncasecmp(name, W[i], l)) continue;
+		const char *q = name + l;
+		while (*q == ' ' || *q == '_' || *q == '-') q++;
+		if (*q >= '0' && *q <= '9') return 1;
+	}
+	return 0;
+}
+static int is_collection(const char *dir) {
+	DIR *d = opendir(dir);
+	if (!d) return 0;
+	StrList items = {0}, refs = {0};
+	struct dirent *e;
+	while ((e = readdir(d))) {
+		if (e->d_name[0] == '.') continue;
+		char p[1024];
+		snfmt(p, sizeof p, "%s/%s", dir, e->d_name);
+		if (!import_ignored(p)) sl_push(&items, p);
+	}
+	closedir(d);
+	for (int i = 0; i < items.n; i++) companions(items.v[i], &refs, 0);
+	int games = 0, discs = 0, songs = 0, subs = 0, first = -9, mixed = 0;
+	for (int i = 0; i < items.n; i++) {
+		const char *p = items.v[i];
+		if (sl_find(&refs, p) >= 0) continue;
+		int t;
+		if (dir_exists(p)) {
+			t = import_guess(p, 1);
+			if (t == -1) continue;
+			if (is_disc_folder(path_base(p))) { games++; discs++; }
+			else subs++;
+		} else {
+			t = guess_file(p, 0);
+			if (t == -1 || t == IMPORT_TO_BIOS) continue;
+			if (t == IMPORT_TO_MUSIC) { songs++; continue; }
+			games++;
+			if (is_disc(p)) discs++;
+		}
+		if (first == -9) first = t;
+		else if (t != first) mixed = 1;
+	}
+	sl_free(&items);
+	sl_free(&refs);
+	if (subs) return 1;                       /* folders of games inside */
+	if (songs && games) return 1;             /* songs and games together */
+	if (mixed) return 1;                      /* games for different consoles */
+	if (games >= 2 && discs < games) return 1;/* several games (not the discs of one) */
+	return 0;
+}
+
+static void sort_dir(const char *dir, ImportResult *r);
+static void sort_collection(const char *dir, ImportResult *r) {
+	sort_dir(dir, r);
+	rmdir(dir);	/* (only if it's empty now: anything left stays to be sorted) */
+}
+#endif
+
 static void sort_dir(const char *dir, ImportResult *r) {
 	DIR *d = opendir(dir);
 	if (!d) return;
@@ -723,6 +815,9 @@ static void sort_dir(const char *dir, ImportResult *r) {
 		const char *p = items.v[i];
 		if (sl_find(&refs, p) >= 0 || (!file_exists(p) && !dir_exists(p))) continue;
 		int is_dir = dir_exists(p);
+#ifdef SORT_COLLECTIONS
+		if (is_dir && folder_by_name(path_base(p)) == -1 && is_collection(p)) { sort_collection(p, r); continue; }
+#endif
 		int t = import_guess(p, is_dir);
 		if (t == -1) { r->left++; continue; }
 		char err[256];

@@ -78,16 +78,28 @@ Settings > Send to Zappo shows an address and a QR code. On a phone or PC on
 the **same Wi-Fi**, scan the code (or type the address): a page opens where
 you choose or drop games, songs, albums and films. They go into the card's
 Import folder, and Zappo sorts them when you leave the Send to Zappo screen.
+A whole folder of games works too (for several consoles at once): each game
+goes to its own console. A game in folders of its own ("Disc 1", "Disc 2")
+or a .cue with its .bin files stays together. Anything Zappo can't place
+(a film in a .zip, say) waits under **Import** in the console list, where
+you choose the console.
 The page only runs while that screen is open. It uses the port after Zappo's
 own (8641), so the tablet's screen page on 8640 keeps working.
 
 ## Get box art
 
+Zappo looks for box art by itself whenever new games are sorted (and once
+for the games already there, the first time this version starts).
 Settings > Games > Get box art (or a console's own settings, for just that
-console) finds pictures for games that have none, from the libretro thumbnail
-library (the pictures RetroArch uses), over Wi-Fi. They are saved as
-`Roms/<console>/Imgs/<game>.png` on the test card, as on a GarlicOS card.
-It carries on in the background; the menu shows how it's going.
+console) does it any time. Pictures come from the libretro thumbnail library
+(the pictures RetroArch uses), over Wi-Fi, for games that have none, and are
+saved as `Roms/<console>/Imgs/<game>.png`, as on a GarlicOS card. It carries
+on in the background; the menu shows how it's going, and Zappo says when
+it's done. Games with home-made names (a ROM hack, "Pokemon Unbound") may not
+be in the library.
+
+The console list shows a picture of each console: RetroArch's "Systematic"
+icons (CC BY 4.0, see `tablet/icons`).
 
 ## Smoothness: Tablet power
 

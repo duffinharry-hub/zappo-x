@@ -9,6 +9,7 @@
 #include "font.h"
 #include "import.h"
 #include "music.h"
+#include "net.h"
 #include "plat.h"
 #include "ui.h"
 #include "util.h"
@@ -54,6 +55,18 @@ int app_start(void) {
 	import_run(&imp);
 	data_scan();
 	ui_init();
+#ifdef ZAPPO_TABLET
+	/* box art for new games without asking (and once for the games already
+	 * there, the first time this version starts) */
+	{
+		char mk[600];
+		snfmt(mk, sizeof mk, "%s/.box-art-auto-1", g_paths.clove);
+		if ((imp.moved > 0 || !file_exists(mk)) && net_art_start("") == 0) {
+			FILE *f = fopen(mk, "w");
+			if (f) fclose(f);
+		}
+	}
+#endif
 	{
 		char msg[200];
 		import_summary(&imp, 0, msg, sizeof msg);

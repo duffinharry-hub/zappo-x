@@ -68,6 +68,12 @@ static struct { int b, down; } q[QN];
  * lost, so nothing stays held down */
 static unsigned char want_down[B_COUNT], told_down[B_COUNT];
 static int resync;
+static uint64_t now_ms_(void);
+static unsigned held_mask;      /* what the page last said is still held */
+static uint64_t held_ping;      /* and when */
+int plat_button_alive(int button) {
+	return button >= 0 && button < 32 && (held_mask >> button & 1) && now_ms_() - held_ping < 150;
+}
 static int qh, qt;
 
 static uint64_t now_ms_(void) {
@@ -259,6 +265,9 @@ static void page_message(char *m) {
 		gpu_page = b != 0;
 		LOG("tablet: the page %s", gpu_page ? "draws with the graphics chip (WebGL)" : "has no WebGL: pictures put together here");
 		reset_page_state();
+	} else if (sscanf(m, "h %d", &b) == 1) {
+		held_mask = (unsigned)b;
+		held_ping = now_ms_();
 	} else if (sscanf(m, "d %d", &b) == 1) {
 		inflight = inflight > b ? inflight - b : 0;
 	} else if (!strcmp(m, "reset")) {
@@ -648,8 +657,10 @@ void web_launch(const char *body) { sncpy(launched, body, sizeof launched); }
 
 static int on_android(void) { return access("/system/bin/app_process", F_OK) == 0; }
 
-/* runs a program (no shell) and keeps what it says; its exit code */
-static int run_capture(char *const argv[], char *out, size_t n) {
+/* runs a program (no shell) and keeps what it says; its exit code, or -1
+ * if it didn't finish within timeout_ms (then it's stopped) - so nothing it
+ * does can leave Zappo hanging */
+static int run_capture_t(char *const argv[], char *out, size_t n, int timeout_ms) {
 	int fd[2];
 	out[0] = 0;
 	if (pipe(fd) != 0) return -1;
@@ -661,31 +672,66 @@ static int run_capture(char *const argv[], char *out, size_t n) {
 		int nul = open("/dev/null", O_RDONLY);
 		if (nul >= 0) dup2(nul, 0);
 		for (int i = 3; i < 1024; i++) close(i);	/* (not the page's connection) */
+		setsid();
 		execvp(argv[0], argv);
 		_exit(127);
 	}
 	close(fd[1]);
 	size_t got = 0;
-	ssize_t r;
-	char sink[512];
-	while ((r = read(fd[0], got < n - 1 ? out + got : sink, got < n - 1 ? n - 1 - got : sizeof sink)) > 0)
-		if (got < n - 1) got += (size_t)r;
+	int st = 0, done = 0;
+	uint64_t end = now_ms_() + (uint64_t)timeout_ms;
+	for (;;) {
+		struct pollfd pf = {fd[0], POLLIN, 0};
+		int left = (int)(end > now_ms_() ? end - now_ms_() : 0);
+		int pr = poll(&pf, 1, MIN(left, 100));
+		if (pr > 0) {
+			char tmp[512];
+			ssize_t r = read(fd[0], tmp, sizeof tmp);
+			if (r > 0) {
+				size_t k = MIN((size_t)r, n - 1 - got);
+				memcpy(out + got, tmp, k);
+				got += k;
+				continue;
+			}
+			if (r == 0) break;	/* everything said */
+		}
+		if (!done && waitpid(pid, &st, WNOHANG) == pid) done = 1;
+		if (done && pr == 0) break;	/* (finished; something it left behind may hold the pipe) */
+		if (!left) break;
+	}
 	out[got] = 0;
 	close(fd[0]);
-	int st = 0;
-	if (waitpid(pid, &st, 0) != pid) return -1;
+	if (!done && waitpid(pid, &st, WNOHANG) != pid) {
+		kill(-pid, SIGKILL);
+		kill(pid, SIGKILL);
+		waitpid(pid, &st, 0);
+		LOG("android: %s didn't answer within %d ms", argv[0], timeout_ms);
+		return -1;
+	}
 	return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 }
+static int run_capture(char *const argv[], char *out, size_t n) { return run_capture_t(argv, out, n, 8000); }
 
 /* RetroArch's package: retroarch.com's 64-bit one first (it has the core
  * downloader), then the others */
+static void pkg_file(char *out, size_t n) { const char *t = getenv("TMPDIR"); snfmt(out, n, "%s/zappo-retroarch-package", t && *t ? t : "/tmp"); }
 static int retroarch_pkg(char *out, size_t n) {
 	const char *e = getenv("ZAPPO_RETROARCH");
 	if (e && *e) { sncpy(out, e, n); return 1; }
+	char pf[300];
+	pkg_file(pf, sizeof pf);
+	char *known = file_read_all(pf, NULL);
+	if (known) {
+		str_trim(known);
+		int ok = known[0] != 0;
+		if (ok) sncpy(out, known, n);
+		free(known);
+		if (ok) return 1;
+	}
 	static const char *P[] = {"com.retroarch.aarch64", "com.retroarch", "com.retroarch.ra32"};
 	char list[16384];
 	char *argv[] = {"pm", "list", "packages", "retroarch", NULL};
-	run_capture(argv, list, sizeof list);
+	run_capture_t(argv, list, sizeof list, 6000);
 	for (int i = 0; i < ARRAY_LEN(P); i++) {
 		char want[80];
 		snfmt(want, sizeof want, "package:%s", P[i]);
@@ -730,7 +776,26 @@ static int parse_launch(const char *body, char *core, size_t cn, char *rom, size
 static int android_play(const char *body, char *name, size_t nn, char *core_name, size_t cnn, char *msg, size_t mn) {
 	char core[512], rom[2048], out[4096];
 	name[0] = core_name[0] = msg[0] = 0;
-	if (!parse_launch(body, core, sizeof core, rom, sizeof rom)) { sncpy(msg, "Zappo couldn't tell which game that is.", mn); return 0; }
+	if (!parse_launch(body, core, sizeof core, rom, sizeof rom)) {
+		if (!strstr(body, "retroarch")) { sncpy(msg, "Zappo couldn't tell which game that is.", mn); return 0; }
+		/* the RetroArch tab: RetroArch itself, at its own menu */
+		sncpy(name, "RetroArch", nn);
+		sncpy(core_name, "menu", cnn);
+		char pkg[64], cmp[160];
+		static const char *TRY[] = {"com.retroarch.aarch64", "com.retroarch", "com.retroarch.ra32"};
+		int listed = retroarch_pkg(pkg, sizeof pkg);
+		for (int i = 0; i < (listed ? 1 : ARRAY_LEN(TRY)); i++) {
+			snfmt(cmp, sizeof cmp, "%s/com.retroarch.browser.retroactivity.RetroActivityFuture", listed ? pkg : TRY[i]);
+			char *argv[] = {"am", "start", "-n", cmp, "-a", "android.intent.action.MAIN", NULL};
+			int rc = run_capture(argv, out, sizeof out);
+			LOG("android: RetroArch's menu (%s) -> %d %s", cmp, rc, out);
+			if (strstr(out, "does not exist")) continue;
+			if (strstr(out, "Error") || (!strstr(out, "Starting") && rc != 0)) { snfmt(msg, mn, "RetroArch didn't start: %.200s", out[0] ? out : "Android didn't answer"); return 0; }
+			return 1;
+		}
+		sncpy(msg, "To play games here, install RetroArch for Android (retroarch.com, the 64-bit version), open it once and allow it to see your files.", mn);
+		return 0;
+	}
 	sncpy(name, path_base(rom), nn);
 	if (!strcmp(core, "/bin/sh")) { sncpy(msg, "Ports are made for the handheld: they don't run on the tablet.", mn); return 0; }
 	char so[160];
@@ -759,11 +824,14 @@ static int android_play(const char *body, char *name, size_t nn, char *core_name
 		                "--es", "ROM", rom, "--es", "LIBRETRO", lib, "--es", "CONFIGFILE", cfg, NULL};
 		int rc = run_capture(argv, out, sizeof out);
 		LOG("android: %s with %s (%s) -> %d %s", rom, lib, pkg, rc, out);
-		if (strstr(out, "does not exist")) continue;	/* (not this one) */
+		char pf[300];
+		pkg_file(pf, sizeof pf);
+		if (strstr(out, "does not exist")) { unlink(pf); continue; }	/* (not this one) */
 		if (strstr(out, "Error") || (!strstr(out, "Starting") && rc != 0)) {
-			snfmt(msg, mn, "RetroArch didn't start: %.200s", out[0] ? out : "no answer from Android");
+			snfmt(msg, mn, "RetroArch didn't start: %.200s", out[0] ? out : "Android didn't answer. In Android's Settings > Apps > Termux, allow Appear on top, then try again.");
 			return 0;
 		}
+		file_write_all(pf, pkg, strlen(pkg));	/* (quicker next time) */
 		return 1;
 	}
 	sncpy(msg, "To play games here, install RetroArch for Android (retroarch.com, the 64-bit version), open it once and allow it to see your files.", mn);
@@ -897,6 +965,7 @@ int main(int argc, char **argv) {
 	 * start. Then Zappo starts afresh - as the handheld does after a game -
 	 * keeping the page connected */
 	char gname[256], gcore[96], why[400];
+	if (on_android()) ws_text("g starting");
 	if (on_android() && android_play(launched, gname, sizeof gname, gcore, sizeof gcore, why, sizeof why))
 		ws_text("g playing\t%s\t%s", gname, gcore);
 	else if (on_android())

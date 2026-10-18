@@ -510,6 +510,7 @@ static void push_menu(int menu, int arg) {
 }
 
 static void send_done(void);
+static void art_after_import(const ImportResult *r);
 
 static void pop_view(void) {
 	if (depth <= 1) return;
@@ -2305,6 +2306,7 @@ static void menu_change(View *mv, int id, int dir) {
 		char wherebuf[96];
 		sncpy(wherebuf, where, sizeof wherebuf);
 		if (import_move(pick_path, id, err, sizeof err) != 0) { toast("%s", err[0] ? err : "Could not move it"); return; }
+		if (id >= 0) { ImportResult one = {0}; one.moved = 1; art_after_import(&one); }
 		pop_view(); /* back to the Import list */
 		rescan();
 		View *lv = top();
@@ -2555,6 +2557,7 @@ static void menu_change(View *mv, int id, int dir) {
 		if (id == 1 || id == 3) {
 			ImportResult r;
 			import_run(&r);
+			art_after_import(&r);
 			rescan();
 			core_opts_sys = -1;
 			char msg[200];
@@ -2620,10 +2623,20 @@ static void draw_send(void) {
 	}
 }
 
+/* the tablet finds box art for games that were just sorted, without asking */
+static void art_after_import(const ImportResult *r) {
+#ifdef ZAPPO_TABLET
+	if (r->moved > 0) net_art_start("");
+#else
+	(void)r;
+#endif
+}
+
 static void send_done(void) {
 	net_send_stop();
 	ImportResult r;
 	import_run(&r);
+	art_after_import(&r);
 	rescan();
 	core_opts_sys = -1;
 	if (r.music) music_lib_invalidate();
@@ -3605,7 +3618,7 @@ int ui_update(void) {
 	/* key repeat */
 	static const int RATE[] = {140, 105, 78, 56, 38};
 	for (int b = 0; b < B_COUNT; b++) {
-		if (!held[b] || !repeatable(b) || now < rep_at[b]) continue;
+		if (!held[b] || !repeatable(b) || now < rep_at[b] || !plat_button_alive(b)) continue;
 		int rate = RATE[g_set.repeat_rate];
 		if (g_set.repeat_accel && now - held_at[b] > 1500) rate = rate * 3 / 5;
 		rep_at[b] = now + (uint64_t)rate;

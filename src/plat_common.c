@@ -6,6 +6,10 @@
 
 Paths g_paths;
 
+#ifndef ZAPPO_TABLET
+int plat_button_alive(int button) { (void)button; return 1; }
+#endif
+
 const char *const BUTTON_NAMES[B_COUNT] = {
 	"up", "down", "left", "right",
 	"a", "b", "x", "y",

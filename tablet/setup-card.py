@@ -11,6 +11,8 @@
 - Once: consoles without games are hidden, so the list shows only yours.
 - Each console gets its folder (Roms/GBA, Roms/NDS ...), as on a GarlicOS
   card: Zappo offers those consoles when you choose one for something in Import.
+- Each console gets its picture in the console list (tablet/icons); one you
+  put in CFW/clove/icons yourself is kept.
 - Games that ended up in the wrong place (a DS game in BIOS, a Game Boy
   Advance one in Game Boy - older Zappo didn't know DS games, and the BIOS
   folder came first in its list) go to their console.
@@ -101,7 +103,14 @@ roms = os.path.join(card, "mmc", "Roms")
 for code in cm:
     os.makedirs(os.path.join(roms, code), exist_ok=True)
 
-# 5. games in the wrong place
+# 5. a picture for every console (RetroArch's Systematic icons, tablet/icons)
+icons = os.path.join(clove, "icons")
+os.makedirs(icons, exist_ok=True)
+for fn in sorted(os.listdir(os.path.join(HERE, "icons"))):
+    if fn.endswith(".png") and not os.path.exists(os.path.join(icons, fn)):
+        shutil.copyfile(os.path.join(HERE, "icons", fn), os.path.join(icons, fn))
+
+# 6. games in the wrong place
 GAME_EXT = {".nds": "NDS", ".gba": "GBA", ".gb": "GB", ".gbc": "GBC", ".nes": "FC", ".sfc": "SFC", ".smc": "SFC",
             ".md": "MD", ".gen": "MD", ".smd": "MD", ".sms": "MS", ".gg": "GG", ".pce": "PCE", ".ngp": "NGP",
             ".ngc": "NGP", ".ws": "WS", ".wsc": "WS", ".z64": "N64", ".n64": "N64", ".v64": "N64", ".lnx": "LYNX"}
