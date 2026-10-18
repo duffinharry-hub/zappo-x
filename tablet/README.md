@@ -16,9 +16,27 @@ First time, in Termux:
     sh ~/zappo-x/tablet/install.sh
     sh ~/zappo-x/tablet/run.sh
 
-After that, `sh ~/zappo-x/tablet/run.sh` starts it, and
 `sh ~/zappo-x/tablet/update.sh` gets the newest version (and adds anything new
 it needs, such as Python).
+
+## Zappo X as an app
+
+The install keeps Zappo X running in the background (Termux starts it each
+time Termux opens). The first time `run.sh` opens it in Chrome, tap
+**Install app** at the top (or Chrome's menu > **Add to home screen** >
+Install). From then on the **Zappo X icon** on the home screen opens it like
+any app: full screen, sideways, no Termux, no address bar.
+
+- After the tablet restarts, open Termux once (it starts Zappo X), or install
+  **Termux:Boot** from F-Droid and open it once: then Zappo X starts with the
+  tablet by itself.
+- If Zappo X isn't running, the app says so and connects as soon as it is.
+- Samsung may stop Termux in the background to save battery: Android's
+  Settings > Apps > Termux > Battery > **Unrestricted** keeps it going.
+- **Termux:Widget** (F-Droid) can put a "Zappo X" shortcut on the home screen
+  that starts it and opens it, if you prefer that.
+- `sh ~/zappo-x/tablet/server.sh stop` stops it; `... status` says whether
+  it's running.
 
 ## Playing games
 

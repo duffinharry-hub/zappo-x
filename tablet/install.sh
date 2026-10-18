@@ -2,7 +2,8 @@
 # Zappo X on an Android tablet or phone, at full speed (Termux).
 # Builds Zappo for this device, sets up its card ("Zappo X" in the tablet's
 # own storage, where RetroArch can play the games and a PC sees it over USB),
-# and adds Python for Send to Zappo and Get box art.
+# adds Python for Send to Zappo and Get box art, and keeps Zappo X running in
+# the background for its app (the home-screen icon).
 # Run once after downloading, and again after each update.
 set -e
 cd "$(dirname "$0")/.."
@@ -33,7 +34,22 @@ esac
 python3 tablet/setup-card.py "$CARD" "$OLD"
 mkdir -p "$CARD/mmc/CFW/clove"
 cp knulli/send-to-zappo.py knulli/get-box-art.py "$CARD/mmc/CFW/clove/"
+
+# Zappo X as an app: it keeps running in the background (tablet/server.sh),
+# started whenever Termux opens - and at switch-on, with the Termux:Boot app
+HERE="$(pwd)"
+if [ -n "$PREFIX" ] && [ -d "$PREFIX/etc/profile.d" ]; then
+	printf '# Zappo X: running in the background, for its app\nsh "%s/tablet/server.sh" start >/dev/null 2>&1\n' "$HERE" > "$PREFIX/etc/profile.d/zappo-x.sh"
+fi
+mkdir -p "$HOME/.termux/boot" "$HOME/.shortcuts"
+printf '#!/data/data/com.termux/files/usr/bin/sh\nsh "%s/tablet/server.sh" start\n' "$HERE" > "$HOME/.termux/boot/zappo-x"
+printf '#!/data/data/com.termux/files/usr/bin/sh\nsh "%s/tablet/run.sh"\n' "$HERE" > "$HOME/.shortcuts/Zappo X"
+chmod +x "$HOME/.termux/boot/zappo-x" "$HOME/.shortcuts/Zappo X"
+sh tablet/server.sh restart
 echo
 echo "Done. Zappo X's card: $CARD"
 echo "Games go in its mmc/Roms/<console> folders (GBA, SFC, MD, PS ...), or send them with Send to Zappo."
-echo "Start Zappo X with:  sh ~/zappo-x/tablet/run.sh"
+echo
+echo "Zappo X is running. To make it an app: sh ~/zappo-x/tablet/run.sh opens it in Chrome,"
+echo "then tap Install app (or Chrome's menu > Add to home screen). From then on, the Zappo X"
+echo "icon opens it full screen - no Termux needed."

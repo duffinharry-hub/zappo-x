@@ -164,18 +164,19 @@ static const char *mime(const char *p) {
 	if (str_ieq(e, "html")) return "text/html; charset=utf-8";
 	if (str_ieq(e, "js")) return "text/javascript";
 	if (str_ieq(e, "json")) return "application/json";
+	if (str_ieq(e, "webmanifest")) return "application/manifest+json";
 	if (str_ieq(e, "png")) return "image/png";
 	if (str_ieq(e, "wasm")) return "application/wasm";
 	return "application/octet-stream";
 }
 
-static void serve_file(int fd, const char *url) {
-	char path[1024], hdr[256];
-	if (!strcmp(url, "/")) url = "/index.html";
-	if (strstr(url, "..")) url = "/index.html";
-	snfmt(path, sizeof path, "%s%s", web_dir, url);
-	char *q = strchr(path, '?');
+static void serve_file(int fd, const char *url_in) {
+	char path[1024], hdr[256], url[1024];
+	sncpy(url, url_in, sizeof url);
+	char *q = strpbrk(url, "?#");
 	if (q) *q = 0;
+	if (!strcmp(url, "/") || strstr(url, "..")) sncpy(url, "/index.html", sizeof url);
+	snfmt(path, sizeof path, "%s%s", web_dir, url);
 	size_t n = 0;
 	char *body = file_read_all(path, &n);
 	if (!body) {

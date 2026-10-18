@@ -1,4 +1,8 @@
 <meta charset="utf-8">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b0e18">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="icon-192.png">
 <title>Zappo X Preview</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -55,6 +59,7 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
 .ovl .bar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .2s; }
 #turn { display: none; position: fixed; inset: 46px 0 0; place-items: center; text-align: center; color: var(--ink-dim); padding: 24px; }
 @media (orientation: portrait) and (max-width: 820px) { #turn { display: grid; } #stage { visibility: hidden; } }
+@media (display-mode: fullscreen), (display-mode: standalone) { #full, #install { display: none; } }
 </style>
 
 <div class="top">
@@ -62,6 +67,7 @@ canvas#screen { position: absolute; left: 212px; top: 10px; width: 640px; height
   <span class="chip" id="speed">starting…</span>
   <span class="chip" id="pad" hidden>controller</span>
   <div class="spacer"></div>
+  <button class="tbtn" id="install" hidden>Install app</button>
   <button class="tbtn" id="bench">Speed test</button>
   <button class="tbtn" id="full">Full screen</button>
 </div>
@@ -850,7 +856,7 @@ window.ZAPPO_NATIVE = true;
       ws.onopen = () => { this.running = true; ovl.hidden = true; ovlAction = null; playing = false; ws.send("full"); for (const [b, set] of held) if (set.size) this.key(b, 1); };
       ws.onclose = () => {
         this.running = false;
-        if (ovl.hidden || !ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo X stopped</h2><p>Start it again in Termux:</p><p><code>~/zappo-x/tablet/run.sh</code></p></div>'; }
+        if (ovl.hidden || !ovlAction) { ovl.hidden = false; ovl.firstElementChild.innerHTML = '<div><h2>Zappo X isn\'t running</h2><p>Open <b>Termux</b> once: it starts Zappo X by itself.<br>Then come back here; this connects on its own.</p><p style="margin-top:14px;font-size:13px">(Or in Termux: <code>sh ~/zappo-x/tablet/run.sh</code>)</p></div>'; }
         setTimeout(() => this.connect(), 2000);
       };
       ws.onmessage = (e) => {
@@ -962,6 +968,19 @@ window.ZAPPO_NATIVE = true;
     if (!ms.length) return;
     const med = ms[ms.length >> 1], p95 = ms[Math.floor(ms.length * 0.95)];
     speed.textContent = `test: ${ms.length} pictures · median ${med.toFixed(1)} ms · slowest 5% ${p95.toFixed(1)} ms`;
+  }
+
+  /* the tablet: Zappo X as an app - an icon on the home screen that opens
+     full screen, and opens even before Zappo X itself is running */
+  if (NATIVE) {
+    document.title = "Zappo X";
+    const brand = document.querySelector(".brand");
+    if (brand) brand.innerHTML = "Zappo <b>X</b>";
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+    let installEv = null;
+    addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEv = e; $("install").hidden = false; });
+    addEventListener("appinstalled", () => { $("install").hidden = true; installEv = null; });
+    $("install").onclick = async () => { if (!installEv) return; installEv.prompt(); try { await installEv.userChoice; } catch (e) {} installEv = null; $("install").hidden = true; };
   }
 
   $("full").onclick = () => { const d = document.documentElement; try { (d.requestFullscreen || d.webkitRequestFullscreen).call(d).catch?.(() => {}); } catch (e) {} };

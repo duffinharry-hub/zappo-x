@@ -1,11 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/sh
-# Starts Zappo X and opens it in the browser. Leave Termux running in the
-# background; close Zappo with Ctrl+C in Termux (or the Volume Down + C keys).
-cd "$(dirname "$0")/.."
-# keeps Zappo (and Send to Zappo, Get box art) going while Chrome is in front
-termux-wake-lock 2>/dev/null
-trap 'termux-wake-unlock 2>/dev/null' EXIT
-ZAPPO_WEB=tablet/web ./build/zappo-tablet &
-sleep 1
+# Starts Zappo X (if it isn't running already) and opens it. Once Zappo X is
+# installed as an app (Chrome: Install app), its home-screen icon does the
+# same without Termux; this is for the first time, or after it was stopped.
+cd "$(dirname "$0")/.." || exit 1
+sh tablet/server.sh start || exit 1
+# a moment for it to be ready
+i=0
+while [ $i -lt 20 ]; do
+	if command -v curl >/dev/null; then curl -s -o /dev/null http://127.0.0.1:8640/manifest.webmanifest && break; else sleep 2; break; fi
+	sleep 0.5
+	i=$((i + 1))
+done
 termux-open-url http://127.0.0.1:8640/ 2>/dev/null || echo "Open http://127.0.0.1:8640 in Chrome"
-wait
