@@ -1,0 +1,81 @@
+ZAPPO X - kit for Windows  (Linux / macOS: zappo-x-kit.sh, see the end)
+========================================================================
+For the Anbernic RG40XX H running Knulli (it also suits the rest of the
+RG35XX / RG40XX family on Knulli). Zappo X takes the place of Knulli's menu;
+Knulli, its emulators and its settings stay as they are, and Knulli's own
+menu is one press away (the Knulli tab).
+
+Before you start
+----------------
+1. Keep the card that came with the handheld as it is: it holds Anbernic's
+   own system. Back it up first (Win32 Disk Imager: "Read" saves an image
+   of the whole card) and put it away; Zappo X goes on a second card.
+2. Put Knulli on the second card: the Knulli image for the RG40XX H
+   (knulli.org), written with balenaEtcher or Rufus.
+
+Install
+-------
+3. With the Knulli card in this PC, Windows shows its BATOCERA partition
+   (with a boot folder) as a drive. Run "Zappo X.bat" and pick 1
+   (and 2 for the test pack, if you like).
+4. Eject, card in the handheld (the first slot), switch on. A new Knulli
+   card sets itself up first: it takes a few minutes and restarts once.
+   Then Zappo X opens.
+
+What the menu does
+------------------
+  1  Install / update   puts Zappo X on the card's BATOCERA partition; the
+                        handheld installs it at the next start (into
+                        /userdata/system/zappo-x) and starts it from then on
+  2  Test pack          a few songs and two short films (all made by the
+                        Zappo project) to try things with: they go into
+                        Music\Zappo Test Pack and Videos\Zappo Test Pack
+  3  Check the card     reads back what the kit put there (changes nothing)
+                        and shows what the handheld did (its log)
+  R  Take Zappo X off   at the next start Zappo X steps aside and Knulli's
+                        own menu starts again (Zappo X's folder, with your
+                        settings, stays; delete it yourself if wanted)
+
+On the handheld, Settings > About > "Switch to Knulli's menu" also hands back
+to Knulli, and Knulli's Ports > Zappo X comes back.
+
+What changes on the card
+------------------------
+Only on the BATOCERA partition: a postshare.sh (Knulli runs it at every
+start; it does the install, the test pack and "take off", then nothing) and
+the zappo-x-kit folder (what the kit brought, and log.txt). If the card had a
+postshare.sh of its own, it is kept as postshare.before-zappo-x.sh, still
+runs, and a copy goes in backups\card. Knulli's own system files are never
+touched; on the data partition Zappo X lives in system\zappo-x and is started
+by a Knulli user service (system\services\zappox), with Knulli's menu told
+not to start by itself (system.es.atstartup=0 in batocera.conf).
+
+Wi-Fi, Bluetooth, the stick lights, box art, RetroAchievements and the TV
+(HDMI) are all in Zappo X's Settings; they use Knulli's own settings, so
+Knulli's menu shows the same.
+
+Folders
+-------
+  card\        what goes on the card: postshare.sh and zappo-x-kit\install
+               (Zappo X itself and its installer)
+  test-pack\   the test pack
+  tools\       the scripts behind the menu
+  backups\     anything the kit replaced on a card
+  logs\        what the kit did, each time
+
+Linux and macOS
+---------------
+Mount the card's BATOCERA partition, then from this folder:
+  ./zappo-x-kit.sh install       (1)
+  ./zappo-x-kit.sh testpack      (2)
+  ./zappo-x-kit.sh check         (3)
+  ./zappo-x-kit.sh remove        (R)
+It finds the card under /media, /run/media or /Volumes, or give its path
+after the word.
+
+Licences
+--------
+Zappo X is MIT licensed (LICENSE). Fonts: SIL Open Font License
+(zappo-x\font\LICENSES-OFL.txt on the card). Other parts and their licences:
+THIRD-PARTY.md. Knulli (a Batocera fork) is its own project, GPL, by the
+Knulli team: knulli.org.
