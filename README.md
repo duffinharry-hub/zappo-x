@@ -4,7 +4,7 @@ An open-source launcher for the **original Anbernic RG35XX (2022 model)** runnin
 
 Zappo replaces GarlicOS's menu. GarlicOS, RetroArch and the emulators stay as they are underneath; Zappo changes the menu, how games are started, and how files get onto the card. If Zappo ever fails to start, the handheld falls back to GarlicOS's own menu.
 
-**Download:** the latest `Zappo-x.y.z.zip` under [Releases](https://github.com/duffinharry-hub/zappo-x/releases). Unzip, put the GarlicOS card in a Windows PC, run **`Zappo Setup.bat`**: it finds the card, you tick what you want done, and it can stay on the PC like any program (Start menu, Apps & features). `Zappo.bat` is the same kit as a text menu. Linux or macOS: `./zappo.sh install` with the card mounted (it does the same job, python3 needed for the player fix and charging animation). `Zappo manual.txt` in the zip (the same as [`package/README.txt`](package/README.txt)) is the full guide.
+**Download:** [`Zappo-0.3.5.zip`](https://github.com/duffinharry-hub/zappo-x/raw/main/release/download/Zappo-0.3.5.zip) (also under [Releases](https://github.com/duffinharry-hub/zappo-x/releases)). Unzip, put the GarlicOS card in a Windows PC, run **`Zappo Setup.bat`**: it finds the card, you tick what you want done, and it can stay on the PC like any program (Start menu, Apps & features). `Zappo.bat` is the same kit as a text menu. Linux or macOS: `./zappo.sh install` with the card mounted (it does the same job, python3 needed for the player fix and charging animation). `Zappo manual.txt` in the zip (the same as [`package/README.txt`](package/README.txt)) is the full guide.
 
 ## Zappo X - for the RG40XX H on Knulli (in progress)
 
