@@ -1,4 +1,4 @@
-ZAPPO 0.3.5 - a faster, customisable menu for GarlicOS (built as "Clove")
+ZAPPO 0.3.6 - a faster, customisable menu for GarlicOS (built as "Clove")
 Anbernic RG35XX (original model, GarlicOS 1.x)
 Created by CovGNG
 =====================================================================
@@ -382,6 +382,12 @@ with its colours. LEFT / RIGHT move one, UP / DOWN (or L1 / R1) five.
 Carousel, Grid, List and List with art are still there.
 
 0.3.5 switches Glass and Shelf on once; change them back any time.
+
+0.3.6: a console whose emulator is a launcher script (the way the DraStic
+port and other stand-alone ports hook into GarlicOS - coremapping.json
+"NDS": "/mnt/mmc/Roms/APPS/Drastic.sh") starts the way GarlicOS starts it:
+the script with the game, at full speed. Before, Zappo tried to hand such a
+script to RetroArch. Nintendo DS runs at 1.5 GHz.
 
 
 MAKING IT YOURS

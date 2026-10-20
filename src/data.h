@@ -60,6 +60,7 @@ void data_recent_remove(const char *path);
 
 int data_art_path(const Entry *e, char *out, size_t n);
 int data_icon_path(int sys, char *out, size_t n);
+int core_is_script(const char *core);   /* a .sh set as a console's emulator (a stand-alone port's launcher) */
 
 int data_cores_for_system(int sys, StrList *out);
 const char *data_core_label(const char *core_file); /* display name from core_info */

@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $script:kit = Split-Path -Parent $PSScriptRoot
 $script:onWindows = ($env:OS -eq 'Windows_NT')
 $script:ps = if ($script:onWindows) { 'powershell.exe' } else { 'pwsh' }
-$script:version = '0.3.5'
+$script:version = '0.3.6'
 $script:kitName = 'Zappo for RG35XX'
 
 # ---------------------------------------------------------------- the card

@@ -1,4 +1,4 @@
-ZAPPO 0.3.5 - Windows kit  (Linux / macOS: zappo.sh, see the end)
+ZAPPO 0.3.6 - Windows kit  (Linux / macOS: zappo.sh, see the end)
 =================================================================
 For the original Anbernic RG35XX (2022 model) running GarlicOS.
 Zappo replaces GarlicOS's menu; GarlicOS, RetroArch and the emulators stay

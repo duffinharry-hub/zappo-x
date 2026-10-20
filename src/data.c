@@ -37,7 +37,7 @@ static const Known KNOWN[] = {
 	{"GBA", "Game Boy Advance", "GBA", C13, 12, NULL},
 	{"GPSP", "Game Boy Advance (gpSP)", "GBA gpSP", C12, 13, NULL},
 	{"SGB", "Super Game Boy", "SGB", C13, 14, NULL},
-	{"NDS", "Nintendo DS", "NDS", 0, 15, NULL},
+	{"NDS", "Nintendo DS", "NDS", C15, 15, NULL},
 	{"FC", "NES / Famicom", "NES", C10, 20, NULL},
 	{"NESTOPIA", "NES (Nestopia)", "NES Nestopia", C11, 21, NULL},
 	{"FDS", "Famicom Disk System", "FDS", C10, 22, NULL},
@@ -708,8 +708,15 @@ int data_is_fav(const char *path) {
 	return 0;
 }
 
+/* a console whose "emulator" is a shell script rather than a libretro core */
+int core_is_script(const char *core) {
+	size_t l = strlen(core);
+	return l > 3 && str_ieq(core + l - 3, ".sh");
+}
+
 static void core_path(const char *core, char *out, size_t n) {
-	if (core[0] == '/') sncpy(out, core, n);
+	if (str_starts_with(core, "/mnt/mmc/")) snfmt(out, n, "%s/%s", g_paths.mmc, core + 9);	/* (the card, wherever it is mounted) */
+	else if (core[0] == '/') sncpy(out, core, n);
 	else snfmt(out, n, "%s/retroarch/.retroarch/cores/%s", g_paths.cfw, core);
 }
 
@@ -958,6 +965,7 @@ const char *data_core_label(const char *core_file) {
 	return knulli_core_label(core_file);
 #endif
 	if (strcmp(core_file, "/bin/sh") == 0) return "Shell script";
+	if (core_is_script(core_file)) { static char lbl[96]; char stem[80]; path_stem(path_base(core_file), stem, sizeof stem); snfmt(lbl, sizeof lbl, "%s (launcher)", stem); return lbl; }
 	return core_info(core_file)->label;
 }
 
@@ -1405,6 +1413,17 @@ int data_launch(const Entry *e, char *err, size_t errn) {
 		      "#!/bin/sh\n# Written by Clove %s\nCPU=/sys/devices/system/cpu/cpu0/cpufreq\n%s"
 		      "cd \"$(dirname '%s')\"\n/bin/sh '%s'\n",
 		      CLOVE_VERSION, cpu, qrom, qrom);
+	} else if (core_is_script(core)) {
+		/* a launcher script set as a console's emulator (coremapping.json
+		 * "NDS": "/mnt/mmc/Roms/APPS/Drastic.sh", the way the DraStic and
+		 * other stand-alone ports hook into GarlicOS): run it with the game,
+		 * as GarlicOS does */
+		char qcore[1200];
+		shell_squote(cp, qcore, sizeof qcore);
+		snfmt(body, sizeof body,
+		      "#!/bin/sh\n# Written by Clove %s\nCPU=/sys/devices/system/cpu/cpu0/cpufreq\n%s"
+		      "cd \"$(dirname '%s')\"\n/bin/sh '%s' '%s'\n",
+		      CLOVE_VERSION, cpu, qcore, qcore, qrom);
 	} else {
 		prepare_retroarch(e->path, sys);
 		int video = strstr(core, "ffmpeg") != NULL;

@@ -4,7 +4,7 @@ An open-source launcher for the **original Anbernic RG35XX (2022 model)** runnin
 
 Zappo replaces GarlicOS's menu. GarlicOS, RetroArch and the emulators stay as they are underneath; Zappo changes the menu, how games are started, and how files get onto the card. If Zappo ever fails to start, the handheld falls back to GarlicOS's own menu.
 
-**Download:** [`Zappo-0.3.5.zip`](https://github.com/duffinharry-hub/zappo-x/raw/main/release/download/Zappo-0.3.5.zip) (also under [Releases](https://github.com/duffinharry-hub/zappo-x/releases)). Unzip, put the GarlicOS card in a Windows PC, run **`Zappo Setup.bat`**: it finds the card, you tick what you want done, and it can stay on the PC like any program (Start menu, Apps & features). `Zappo.bat` is the same kit as a text menu. Linux or macOS: `./zappo.sh install` with the card mounted (it does the same job, python3 needed for the player fix and charging animation). `Zappo manual.txt` in the zip (the same as [`package/README.txt`](package/README.txt)) is the full guide.
+**Download:** [`Zappo-0.3.6.zip`](https://github.com/duffinharry-hub/zappo-x/raw/main/release/download/Zappo-0.3.6.zip) (also under [Releases](https://github.com/duffinharry-hub/zappo-x/releases)). Unzip, put the GarlicOS card in a Windows PC, run **`Zappo Setup.bat`**: it finds the card, you tick what you want done, and it can stay on the PC like any program (Start menu, Apps & features). `Zappo.bat` is the same kit as a text menu. Linux or macOS: `./zappo.sh install` with the card mounted (it does the same job, python3 needed for the player fix and charging animation). `Zappo manual.txt` in the zip (the same as [`package/README.txt`](package/README.txt)) is the full guide.
 
 ## Zappo X - for the RG40XX H on Knulli (in progress)
 
@@ -14,7 +14,7 @@ New on top of what's below: Wi-Fi and Bluetooth screens, **Send to Zappo** (drop
 
 **Kit:** `Zappo X Kit.zip` - unzip, put the Knulli card in a PC, run `Zappo X.bat` (Windows) or `./zappo-x-kit.sh install` (Linux / macOS). The handheld installs it at its next start; `READ ME.txt` in the kit has the details. It has been developed and tested on an emulated RG40XX H ("the twin", `twin/`); checks on the real handheld are still to come.
 
-## What it does (Zappo 0.3.5, original RG35XX)
+## What it does (Zappo 0.3.6, original RG35XX)
 
 **Games** - a fixed CPU speed per console while you play (1.0 GHz for Game Boy/NES up to 1.5 GHz for PlayStation/arcade; GarlicOS changes the clock mid-game, which stutters), per-console emulator / scaling / threaded video / audio latency / FPS settings, carry-on-where-you-left-off with "Start over", search across everything, consoles that need a BIOS say which file, GarlicOS favourites, box art and skins carry over.
 
@@ -25,6 +25,8 @@ New on top of what's below: Wi-Fi and Bluetooth screens, **Send to Zappo** (drop
 **Videos** - a Videos tab as a poster wall or list with running times and watched ticks; up next inside a series folder; "Continue *series*" to the next unwatched episode; a patched FFmpeg player (GarlicOS's closes when you skip): 10 s / 1 min skipping, A pauses, B exits cleanly; films never resume at power-on; MP4s that aren't web-optimised are fixed in place on first play.
 
 **Everyday** - lock screen (L1+R1 unlocks; music controls and A to pause while locked); screensaver clock with 8 fonts; 19 themes (including a Zappo for each element - Electric, Fire, Leaf, Crystal, Ice and Water - with his picture behind every screen, and a lock screen picture each), Classic or Glass style, Carousel / Grid / List / List with art / Shelf layouts; battery time left, 15% and 5% warnings, time to full while charging, how long a full charge lasts at your usage; weekly backup of saves and states (newest three kept); a quiet note at the next start if the handheld restarted on its own mid-game, with the logs kept; screenshot viewer; adjustable button repeat; BLOCKBOX, a small Minecraft-style building game.
+
+**Stand-alone ports** - a console whose emulator is a launcher script in `coremapping.json` (the DraStic port's `"NDS": "/mnt/mmc/Roms/APPS/Drastic.sh"`, say) is started the way GarlicOS starts it: the script with the game. Apps in `Roms/APPS` (Dingux Commander, GMU ...) show under Apps and run as they do in GarlicOS.
 
 **Windows kit (`Zappo Setup.bat`, or `Zappo.bat` as a text menu)** - a setup window that finds the card and runs what you tick; install / update and remove; films and music straight from Downloads to the card, with HD / oversized / multi-track films shrunk to 640 px, English audio, by ffmpeg; zipped series unpacked into folders; box art (libretro library, TheGamesDB), film posters (Wikipedia, else a frame grab) and music covers (Deezer, iTunes); a read-back check; the video player fix as a 47-byte patch to your own copy of GarlicOS's core; boot logo and charging animation (your `ramdisk.img` rewritten with the frames swapped, nothing else touched); an optional updated cores pack; and an undo for every one of those.
 

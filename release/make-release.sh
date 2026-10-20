@@ -6,7 +6,7 @@
 # and copy them into package/ if they changed.
 set -e
 R=$(cd "$(dirname "$0")/.." && pwd)
-VER=${1:-0.3.5}
+VER=${1:-0.3.6}
 OUT=$R/release/out
 STAGE=$OUT/Zappo-$VER
 rm -rf "$STAGE"; mkdir -p "$STAGE/card" "$OUT"

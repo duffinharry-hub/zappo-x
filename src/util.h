@@ -12,7 +12,7 @@
 #define FW_MENU_TAB "Knulli"
 #define FW_MENU_TEXT "Open Knulli's own menu for system settings, updates, scraping and everything Zappo X doesn't do yet."
 #else
-#define CLOVE_VERSION "0.3.5"
+#define CLOVE_VERSION "0.3.6"
 #define FW_NAME "GarlicOS"
 #define FW_MENU_TAB "RetroArch"
 #define FW_MENU_TEXT "Open RetroArch's own menu to change cores, shaders, hotkeys and more."
