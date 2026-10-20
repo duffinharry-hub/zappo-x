@@ -62,7 +62,7 @@ function Open-Folder([string]$path) { try { if ($path) { [void][IO.Directory]::C
 function Oops([string]$where, $err) {
 	$m = "$where`: $($err.Exception.Message)"
 	try { if ($script:logBox) { $script:logBox.AppendText($m + "`r`n") } } catch {}
-	try { [void][Windows.Forms.MessageBox]::Show($m, 'Zappo Setup') } catch {}
+	try { if ($script:form) { [void][Windows.Forms.MessageBox]::Show($script:form, $m, 'Zappo Setup') } else { [void][Windows.Forms.MessageBox]::Show($m, 'Zappo Setup') } } catch {}
 }
 
 # ---------------------------------------------------------------- window
