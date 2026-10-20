@@ -8,7 +8,7 @@ P=${PUBLIC:-$R/../zappo-x}
 cd "$P"
 git rm -rq --ignore-unmatch . >/dev/null
 git -C "$R" archive HEAD | tar -x -C "$P"
-rm -f ZAPPO-X-PLAN.md docs/progress.json docs/m[0-9]*-*.jpg docs/m[0-9]*-*.gif   # private: the plan, the progress page and its pictures
+rm -f ZAPPO-X-PLAN.md docs/progress.json docs/m[0-9]*-*.jpg docs/m[0-9]*-*.gif docs/reddit-*.md   # private: the plan, the progress page and its pictures
 [ -d docs ] && [ -z "$(ls -A docs)" ] && rmdir docs
 git add -A
 git -c user.name=Claude -c user.email=noreply@anthropic.com commit -q -m "$1" && git log --oneline -1

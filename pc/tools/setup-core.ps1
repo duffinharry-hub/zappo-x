@@ -33,7 +33,7 @@ function Get-CardInfo([string]$card) {
 	if (-not $card) { return $info }
 	$info.garlic = Test-Path -LiteralPath (Join-Path $card 'CFW\retroarch')
 	$v = Join-Path $card 'CFW\clove\version.txt'
-	if (Test-Path -LiteralPath $v) { $info.zappo = (Get-Content -LiteralPath $v -TotalCount 1).Trim() }
+	if (Test-Path -LiteralPath $v) { $info.zappo = "$(Get-Content -LiteralPath $v -TotalCount 1)".Trim() }
 	elseif (Test-Path -LiteralPath (Join-Path $card 'CFW\clove\clove')) { $info.zappo = 'installed' }
 	try { $info.label = (New-Object IO.DriveInfo($card)).VolumeLabel } catch {}
 	return $info
@@ -46,7 +46,8 @@ function Get-Jobs([hashtable]$want, [string]$card, [string]$boot) {
 	$t = Join-Path $script:kit 'tools'
 	$jobs = @()
 	if ($want['install'])    { $jobs += @{ id = 'install'; title = 'Install / update Zappo on the card'; file = (Join-Path $t 'install.ps1'); args = @('-Card', $card, '-NoBoot') } }
-	if ($want['boot'])       { $jobs += @{ id = 'boot'; title = 'Boot logo and charging animation'; file = (Join-Path $t 'boot-art.ps1'); args = $(if ($boot) { @('-Boot', $boot) } else { @() }) } }
+	$bootArgs = @(); if ($boot) { $bootArgs = @('-Boot', $boot) }
+	if ($want['boot'])       { $jobs += @{ id = 'boot'; title = 'Boot logo and charging animation'; file = (Join-Path $t 'boot-art.ps1'); args = $bootArgs } }
 	if ($want['unpack'])     { $jobs += @{ id = 'unpack'; title = 'Unpack downloaded video collections'; file = (Join-Path $t 'unpack-videos.ps1'); args = @() } }
 	if ($want['media'])      { $jobs += @{ id = 'media'; title = 'Films and music from Downloads to the card'; file = (Join-Path $t 'add-media.ps1'); args = @('-Card', $card) } }
 	if ($want['art'])        { $jobs += @{ id = 'art'; title = 'Box art for games'; file = (Join-Path $t 'get-game-art.ps1'); args = @('-Roms', (Join-Path $card 'Roms')) }
@@ -56,23 +57,35 @@ function Get-Jobs([hashtable]$want, [string]$card, [string]$boot) {
 	# undo
 	if ($want['undoCores'])  { $jobs += @{ id = 'undoCores'; title = "GarlicOS's own cores back"; file = (Join-Path $t 'extra-cores.ps1'); args = @('-Card', $card, '-Revert') } }
 	if ($want['undoPlayer']) { $jobs += @{ id = 'undoPlayer'; title = "GarlicOS's video player back"; file = (Join-Path $t 'player-fix.ps1'); args = @('-Card', $card, '-Revert') } }
-	if ($want['undoBoot'])   { $jobs += @{ id = 'undoBoot'; title = 'GarlicOS boot logo and charging screen back'; file = (Join-Path $t 'boot-art.ps1'); args = @('-Revert') + $(if ($boot) { @('-Boot', $boot) } else { @() }) } }
+	if ($want['undoBoot'])   { $jobs += @{ id = 'undoBoot'; title = 'GarlicOS boot logo and charging screen back'; file = (Join-Path $t 'boot-art.ps1'); args = @('-Revert') + $bootArgs } }
 	if ($want['remove'])     { $jobs += @{ id = 'remove'; title = 'Remove Zappo from the card'; file = (Join-Path $t 'install.ps1'); args = @('-Card', $card, '-Remove', '-NoBoot') } }
 	return ,$jobs
 }
 
 # Starts one job in its own PowerShell, output going to a file. Returns a
 # handle for Read-JobOutput / Wait-Job to poll, so a window stays responsive.
+function Quote-Arg([string]$v) {
+	if ($v -notmatch '[ "]') { return $v }
+	$v = $v -replace '(\\*)"', '$1$1\"'
+	$v = $v -replace '(\\+)$', '$1$1'
+	return '"' + $v + '"'
+}
+# what a child powershell.exe writes to a redirected file is in the console's code page
+$script:childEnc = if ($script:onWindows) { try { [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage) } catch { [Text.Encoding]::Default } } else { New-Object Text.UTF8Encoding($false) }
+
 function Start-KitJob([hashtable]$job) {
 	$dir = Join-Path $script:kit 'logs'
 	[void][IO.Directory]::CreateDirectory($dir)
 	$out = Join-Path $dir ('setup-' + $job.id + '.out.txt')
 	$err = Join-Path $dir ('setup-' + $job.id + '.err.txt')
 	foreach ($f in $out, $err) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
-	$argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', ('"' + $job.file + '"')) + @($job.args | ForEach-Object { if ("$_" -match '[ "]') { '"' + ("$_" -replace '"', '\"') + '"' } else { "$_" } })
+	# each argument quoted the way powershell.exe's parser wants it (a path ending in \ gets that \ doubled inside quotes)
+	$argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', (Quote-Arg $job.file))
+	foreach ($a in @($job.args)) { if ("$a" -ne '') { $argList += (Quote-Arg "$a") } }
 	$sp = @{ FilePath = $script:ps; ArgumentList = $argList; WorkingDirectory = $script:kit; PassThru = $true; RedirectStandardOutput = $out; RedirectStandardError = $err }
 	if ($script:onWindows) { $sp.WindowStyle = 'Hidden' } else { $sp.NoNewWindow = $true }
 	$p = Start-Process @sp
+	$null = $p.Handle   # (so the exit code is kept when it finishes)
 	return @{ proc = $p; file = $out; err = $err; read = 0L; title = $job.title; id = $job.id }
 }
 
@@ -86,10 +99,10 @@ function Read-JobOutput([hashtable]$h) {
 				[void]$fs.Seek($h.read, 'Begin')
 				$buf = New-Object byte[] ($fs.Length - $h.read)
 				$n = $fs.Read($buf, 0, $buf.Length)
-				$text = [Text.Encoding]::UTF8.GetString($buf, 0, $n)
+				$text = $script:childEnc.GetString($buf, 0, $n)
 				$cut = $text.LastIndexOf("`n")
 				if ($cut -ge 0) {
-					$h.read += [Text.Encoding]::UTF8.GetByteCount($text.Substring(0, $cut + 1))
+					$h.read += $script:childEnc.GetByteCount($text.Substring(0, $cut + 1))
 					$lines = $text.Substring(0, $cut).Replace("`r", '').Split("`n")
 				}
 			}
@@ -149,7 +162,9 @@ function Install-Kit([bool]$desktop) {
 	$target = Join-Path $home_ 'Zappo Setup.bat'
 	$sh = New-Object -ComObject WScript.Shell
 	$menu = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'
-	foreach ($lnk in @((Join-Path $menu ($script:kitName + '.lnk'))) + $(if ($desktop) { @((Join-Path ([Environment]::GetFolderPath('Desktop')) ($script:kitName + '.lnk'))) } else { @() })) {
+	$links = @((Join-Path $menu ($script:kitName + '.lnk')))
+	if ($desktop) { $links += (Join-Path ([Environment]::GetFolderPath('Desktop')) ($script:kitName + '.lnk')) }
+	foreach ($lnk in $links) {
 		$s = $sh.CreateShortcut($lnk)
 		$s.TargetPath = $target
 		$s.WorkingDirectory = $home_
