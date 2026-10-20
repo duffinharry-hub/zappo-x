@@ -6,6 +6,7 @@ cls
 echo.
 echo   ZAPPO 0.3.5  -  for the Anbernic RG35XX (original model) on GarlicOS
 echo   ====================================================================
+echo   (The same jobs with a window: "Zappo Setup.bat".)
 echo   Put the GarlicOS card in this PC first (the partition with CFW, BIOS and Roms).
 echo.
 echo   1  Install / update Zappo on the card

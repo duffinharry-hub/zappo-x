@@ -4,7 +4,7 @@ An open-source launcher for the **original Anbernic RG35XX (2022 model)** runnin
 
 Zappo replaces GarlicOS's menu. GarlicOS, RetroArch and the emulators stay as they are underneath; Zappo changes the menu, how games are started, and how files get onto the card. If Zappo ever fails to start, the handheld falls back to GarlicOS's own menu.
 
-**Download:** the latest `Zappo-x.y.z.zip` under Releases. Unzip, put the GarlicOS card in a Windows PC, run `Zappo.bat`, pick 1. Linux or macOS: `./zappo.sh install` with the card mounted (it does the same job, python3 needed for the player fix and charging animation). `Zappo manual.txt` in the zip (the same as [`package/README.txt`](package/README.txt)) is the full guide.
+**Download:** the latest `Zappo-x.y.z.zip` under [Releases](https://github.com/duffinharry-hub/zappo-x/releases). Unzip, put the GarlicOS card in a Windows PC, run **`Zappo Setup.bat`**: it finds the card, you tick what you want done, and it can stay on the PC like any program (Start menu, Apps & features). `Zappo.bat` is the same kit as a text menu. Linux or macOS: `./zappo.sh install` with the card mounted (it does the same job, python3 needed for the player fix and charging animation). `Zappo manual.txt` in the zip (the same as [`package/README.txt`](package/README.txt)) is the full guide.
 
 ## Zappo X - for the RG40XX H on Knulli (in progress)
 
@@ -26,7 +26,7 @@ New on top of what's below: Wi-Fi and Bluetooth screens, **Send to Zappo** (drop
 
 **Everyday** - lock screen (L1+R1 unlocks; music controls and A to pause while locked); screensaver clock with 8 fonts; 19 themes (including a Zappo for each element - Electric, Fire, Leaf, Crystal, Ice and Water - with his picture behind every screen, and a lock screen picture each), Classic or Glass style, Carousel / Grid / List / List with art / Shelf layouts; battery time left, 15% and 5% warnings, time to full while charging, how long a full charge lasts at your usage; weekly backup of saves and states (newest three kept); a quiet note at the next start if the handheld restarted on its own mid-game, with the logs kept; screenshot viewer; adjustable button repeat; BLOCKBOX, a small Minecraft-style building game.
 
-**Windows kit (`Zappo.bat`)** - install / update and remove; films and music straight from Downloads to the card, with HD / oversized / multi-track films shrunk to 640 px, English audio, by ffmpeg; zipped series unpacked into folders; box art (libretro library, TheGamesDB), film posters (Wikipedia, else a frame grab) and music covers (Deezer, iTunes); a read-back check; the video player fix as a 47-byte patch to your own copy of GarlicOS's core; boot logo and charging animation (your `ramdisk.img` rewritten with the frames swapped, nothing else touched); an optional updated cores pack; and an undo for every one of those.
+**Windows kit (`Zappo Setup.bat`, or `Zappo.bat` as a text menu)** - a setup window that finds the card and runs what you tick; install / update and remove; films and music straight from Downloads to the card, with HD / oversized / multi-track films shrunk to 640 px, English audio, by ffmpeg; zipped series unpacked into folders; box art (libretro library, TheGamesDB), film posters (Wikipedia, else a frame grab) and music covers (Deezer, iTunes); a read-back check; the video player fix as a 47-byte patch to your own copy of GarlicOS's core; boot logo and charging animation (your `ramdisk.img` rewritten with the frames swapped, nothing else touched); an optional updated cores pack; and an undo for every one of those.
 
 **What it isn't** - it's not an operating system, and it doesn't do Wi-Fi, Bluetooth or RetroAchievements: the original RG35XX has no wireless hardware. It is for the original RG35XX only, not the H / Plus / 2024 models.
 
@@ -37,7 +37,7 @@ New on top of what's below: Wi-Fi and Bluetooth screens, **Send to Zappo** (drop
 | `src/` | the launcher, C99, no dependencies beyond libc (software renderer, stb_truetype, evdev input, framebuffer) |
 | `blockbox/` | the BLOCKBOX libretro core: freestanding C, no libc, soft-float ABI to match GarlicOS's RetroArch |
 | `package/` | what goes on the card: `CFW/clove` (binary, fonts, themes, lock screens, `main.sh`), `CFW/autostart/clove-install.sh`, the BLOCKBOX core and worlds, the manual |
-| `pc/` | the Windows kit (PowerShell): install, media, art, cores, boot pictures, check, undo |
+| `pc/` | the Windows kit (PowerShell): the setup window (`Zappo Setup.ps1`, `tools/setup-core.ps1`), install, media, art, cores, boot pictures, check, undo |
 | `art/` | the artwork generators (wallpapers, themes, boot logo, charging frames, ramdisk rewrite) |
 | `tests/` | host test harness and unit tests |
 | `third_party/` | cJSON, stb, dr_libs (see THIRD-PARTY.md) |

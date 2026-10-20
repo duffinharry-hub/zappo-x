@@ -16,7 +16,7 @@ cp "$R/package/README.txt" "$STAGE/card/Zappo README.txt"
 cp "$R/package/README.txt" "$STAGE/Zappo manual.txt"
 cp "$R/LICENSE" "$STAGE/LICENSE.txt"
 cp -r "$R/pc/boot" "$R/pc/tools" "$STAGE/"
-cp "$R/pc/Zappo.bat" "$R/pc/READ ME.txt" "$R/pc/zappo.sh" "$STAGE/"
+cp "$R/pc/Zappo.bat" "$R/pc/Zappo Setup.bat" "$R/pc/Zappo Setup.ps1" "$R/pc/zappo.ico" "$R/pc/zappo.png" "$R/pc/READ ME.txt" "$R/pc/zappo.sh" "$STAGE/"
 # only Zappo's own files may be in here
 if find "$STAGE/card" -name '*.so' | grep -v blockbox_libretro.so; then echo "a core that is not Zappo's is in the card folder"; exit 1; fi
 if [ -d "$STAGE/card/BIOS" ] || [ -f "$STAGE/card/CFW/main" ] || [ -f "$STAGE/card/CFW/rootfs.img" ]; then echo "GarlicOS or BIOS files in the card folder"; exit 1; fi

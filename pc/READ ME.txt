@@ -11,9 +11,17 @@ Install
 2. Put the card in this PC. Windows shows its ROMS partition (the one with
    the CFW, BIOS and Roms folders) as a drive; it may also show the small
    boot partition (dmenu.bin, ramdisk.img).
-3. Run Zappo.bat and pick 1.
+3. Run "Zappo Setup.bat". It finds the card, you tick what you want done
+   (install, films and music, box art, the extra cores ...), choose whether
+   the kit stays on this PC (Start menu > "Zappo for RG35XX", listed under
+   Apps & features, no administrator needed) and press Start. The same
+   window undoes any of it or takes Zappo off the card again.
+   Prefer a plain menu? Zappo.bat is the same kit as a text menu.
 4. Eject, card back in the handheld, switch on. The first start finishes
    the install and opens Zappo.
+
+One card is enough: GarlicOS and Zappo live on the card in TF1. A second
+card in TF2 is optional, for more games (its Roms folders show up too).
 
 Everything the kit changes on the card can be undone from the same menu
 (U, V, X, R); what it replaces is kept in backups\.
@@ -54,14 +62,14 @@ Folders
              launcher over to Zappo at first start), the BLOCKBOX core and
              worlds, empty Import, Music and Roms\VIDEOS folders
   boot\      Zappo's boot pictures and the charging animation frames
-  tools\     the scripts behind the menu. video-names.txt, video-posters.txt
+  tools\     the scripts behind the menu and the setup window. video-names.txt, video-posters.txt
              and game-art-names.txt steer names and pictures (notes inside).
              tools\ffmpeg\ appears after the first film is shrunk.
   backups\   what the kit replaced on your card (GarlicOS's video player,
              cores, boot pictures), used by the undo options
   logs\      a log of every run
 
-Source code and licence: https://github.com/CovGNG/zappo (MIT).
+Source code and licence: https://github.com/duffinharry-hub/zappo-x (MIT).
 Fonts are under the SIL Open Font License (card\CFW\clove\fonts\LICENSES-OFL.txt).
 
 Linux and macOS
