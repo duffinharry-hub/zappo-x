@@ -18,6 +18,8 @@ cd "$RUN"
 if [ -f twin.pid ] && kill -0 "$(cat twin.pid)" 2>/dev/null; then
   echo "the twin is already running (pid $(cat twin.pid))" >&2; exit 1
 fi
+# helpers left from an earlier start (one that failed, say) would keep the sockets
+pkill -f "$HERE/ledview.py record" 2>/dev/null || true; pkill -f "$HERE/audiorec.py record" 2>/dev/null || true
 rm -f qmp.sock led.sock agent.sock audio.sock console.log twin.pid led-state.json
 [ -p audio.fifo ] || { rm -f audio.fifo; mkfifo audio.fifo; }
 # the device tree: QEMU's own, with the handheld's model name (dtb.py)
@@ -27,10 +29,15 @@ if [ ! -f "$DTB" ]; then
   "$QEMU" -M virt,dumpdtb="$RUN/virt.dtb" -cpu cortex-a53 -smp 4 -m 1024 -nodefaults -display none >/dev/null 2>&1
   python3 "$HERE/dtb.py" "$RUN/virt.dtb" "$DTB" && rm -f "$RUN/virt.dtb"
 fi
+# the speaker, when this QEMU has the virtio sound device (QEMU 8.2 or newer)
+SOUND=""
+if "$QEMU" -device help 2>/dev/null | grep -q virtio-sound-pci; then
+  SOUND="-audiodev wav,id=snd0,path=$RUN/audio.fifo -device virtio-sound-pci,audiodev=snd0,streams=1"
+fi
 # the stick lights: decoded from the light channel as they change (ledview.py)
 python3 "$HERE/ledview.py" record >/dev/null 2>&1 &
 # the speaker (QEMU waits for this to open the pipe)
-python3 "$HERE/audiorec.py" record >/dev/null 2>&1 &
+[ -n "$SOUND" ] && python3 "$HERE/audiorec.py" record >/dev/null 2>&1 &
 exec "$QEMU" -name "RG40XX H twin" \
   -M virt -cpu cortex-a53 -smp 4 -m 1024 \
   -kernel "$KERNEL" -initrd "$RUN/initrd.gz" -dtb "$DTB" \
@@ -41,8 +48,8 @@ exec "$QEMU" -name "RG40XX H twin" \
   -chardev file,id=con,path=console.log -device virtconsole,chardev=con,name=console \
   -chardev socket,id=led,path=led.sock,server=on,wait=off -device virtconsole,chardev=led,name=rgbled \
   -chardev socket,id=agent,path=agent.sock,server=on,wait=off -device virtserialport,chardev=agent,name=zappo.twin \
-  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:18080-:80,hostfwd=tcp:127.0.0.1:18022-:22,hostfwd=tcp:127.0.0.1:18640-:8640 -device virtio-net-pci,netdev=net0 \
-  -audiodev wav,id=snd0,path="$RUN/audio.fifo" -device virtio-sound-pci,audiodev=snd0,streams=1 \
+  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:18080-:80,hostfwd=tcp:127.0.0.1:18022-:22,hostfwd=tcp:127.0.0.1:18640-:8640 -device virtio-net-pci,netdev=net0,romfile= \
+  $SOUND \
   -device virtio-rng-pci \
   -display none -vga none \
   -qmp unix:qmp.sock,server=on,wait=off \

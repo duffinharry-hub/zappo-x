@@ -1,0 +1,4 @@
+#!/bin/sh
+# twinctl shot out.png | frame out.png | press a | stick L 1 0 | battery 12 | sh 'cmd' | quit ...
+HERE=$(cd "$(dirname "$0")" && pwd)
+TWIN_RUN="$HERE/run" exec python3 "$HERE/twin/twinctl.py" "$@"
