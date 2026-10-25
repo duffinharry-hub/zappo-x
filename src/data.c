@@ -30,6 +30,8 @@ typedef struct {
 #define C13 1296000
 #define C15 1488000
 
+#define MAX_SYS_DIRS 6  /* TF1 + the TF2 card's folders for one console */
+
 static const Known KNOWN[] = {
 	{"IMPORT", "Import", "Import", 0, -100, NULL},
 	{"GB", "Game Boy", "GB", C10, 10, NULL},
@@ -426,7 +428,9 @@ void data_display_name(int sys, const char *path, int is_dir, char *out, size_t 
 			if (!g_set.clean_names) { sncpy(out, stem, n); return; }
 		}
 	}
-	if (!g_set.clean_names) { sncpy(out, stem, n); return; }
+	/* a port script named with dots ("Install.PortMaster"): words */
+	int dotted = !is_dir && !strchr(stem, ' ') && strchr(stem, '.') && sys >= 0 && !strcmp(g_sys[sys].dir[0] ? g_sys[sys].dir : g_sys[sys].code, "ports");
+	if (!g_set.clean_names && !dotted) { sncpy(out, stem, n); return; }
 	char buf[256];
 	size_t o = 0;
 	int depth = 0;
@@ -434,7 +438,7 @@ void data_display_name(int sys, const char *path, int is_dir, char *out, size_t 
 		if (*p == '(' || *p == '[') { depth++; continue; }
 		if ((*p == ')' || *p == ']') && depth) { depth--; continue; }
 		if (depth) continue;
-		if (*p == '_') { buf[o++] = ' '; continue; }
+		if (*p == '_' || (*p == '.' && dotted)) { buf[o++] = ' '; continue; }
 		if (*p == ' ' && o && buf[o - 1] == ' ') continue;
 		buf[o++] = *p;
 	}
@@ -483,6 +487,7 @@ static void collect_refs(const char *dir, const char *file, NameSet *hide) {
 
 typedef struct { char *name; uint8_t is_dir; } RawEnt;
 static int reading_import; /* listing the Import folder: hide notes too */
+static int reading_ports;
 static const char *reading_exts; /* Knulli: only these file extensions are games */
 
 static int read_dir(const char *dir, int scripts_only, RawEnt **out) {
@@ -537,6 +542,37 @@ static int read_dir(const char *dir, int scripts_only, RawEnt **out) {
 		n = w;
 	}
 	ns_free(&hide);
+#ifdef ZAPPO_KNULLI
+	/* Ports: a port's data folder (halo/ beside Halo.sh, or any folder with no
+	 * script of its own inside) isn't something to open */
+	if (reading_ports && !scripts_only) {
+		int w = 0;
+		for (int i = 0; i < n; i++) {
+			int drop = 0;
+			if (v[i].is_dir) {
+				for (int k = 0; k < n && !drop; k++)
+					if (!v[k].is_dir && str_ieq(path_ext(v[k].name), "sh")) {
+						char stem[256];
+						path_stem(v[k].name, stem, sizeof stem);
+						if (str_ieq(stem, v[i].name)) drop = 1;
+					}
+				if (!drop) {
+					char sub[1024];
+					snfmt(sub, sizeof sub, "%s/%s", dir, v[i].name);
+					DIR *sd = opendir(sub);
+					struct dirent *se;
+					int has_sh = 0;
+					while (sd && (se = readdir(sd))) if (str_ieq(path_ext(se->d_name), "sh")) { has_sh = 1; break; }
+					if (sd) closedir(sd);
+					drop = !has_sh;
+				}
+			}
+			if (drop) { free(v[i].name); continue; }
+			v[w++] = v[i];
+		}
+		n = w;
+	}
+#endif
 	*out = v;
 	return n;
 }
@@ -567,14 +603,45 @@ void data_bios_dir(char *out, size_t n) {
 #endif
 }
 
-static void sys_dirs(int sys, char dirs[2][512], int *ndirs) {
+#ifdef ZAPPO_KNULLI
+/* The stock Anbernic card in TF2 (Knulli): its game folders, Roms/<NAME>, for
+ * each of Knulli's consoles. Knulli has no CPS1-3 consoles (FBNeo plays them),
+ * and the stock card's ports, apps, HBMAME and its own emulators don't apply. */
+static const struct { const char *dir, *stock; } STOCK_DIRS[] = {
+	{"atari2600", "A2600"}, {"atari5200", "A5200"}, {"atari7800", "A7800"}, {"atari800", "A800"},
+	{"amiga500", "AMIGA"}, {"atarist", "ATARIST"}, {"atomiswave", "ATOMISWAVE"}, {"c64", "C64"}, {"c20", "VIC20"},
+	{"fbneo", "FBNEO"}, {"fbneo", "CPS1"}, {"fbneo", "CPS2"}, {"fbneo", "CPS3"}, {"fbneo", "VARCADE"},
+	{"dos", "DOS"}, {"dreamcast", "DREAMCAST"}, {"easyrpg", "EASYRPG"},
+	{"nes", "FC"}, {"fds", "FDS"}, {"gb", "GB"}, {"gba", "GBA"}, {"gbc", "GBC"}, {"gamegear", "GG"},
+	{"gameandwatch", "GW"}, {"mame", "MAME"}, {"megadrive", "MD"}, {"segacd", "MDCD"}, {"msx1", "MSX"},
+	{"n64", "N64"}, {"naomi", "NAOMI"}, {"nds", "NDS"}, {"neogeocd", "NEOCD"}, {"neogeo", "NEOGEO"},
+	{"ngp", "NGP"}, {"openbor", "OPENBOR"}, {"pcengine", "PCE"}, {"pcenginecd", "PCECD"}, {"pico8", "PICO"},
+	{"pokemini", "POKE"}, {"psx", "PS"}, {"psp", "PSP"}, {"saturn", "SATURN"}, {"scummvm", "SCUMMVM"},
+	{"sega32x", "SEGA32X"}, {"snes", "SFC"}, {"mastersystem", "SMS"}, {"virtualboy", "VB"},
+	{"wswan", "WS"}, {"wswanc", "WS"}, {"lynx", "LYNX"},
+};
+#endif
+
+/* where a console's games are: TF1, then the TF2 card (a stock Anbernic card
+ * on Knulli can give several folders to one console) */
+static void sys_dirs(int sys, char dirs[MAX_SYS_DIRS][512], int *ndirs) {
 	*ndirs = 0;
 	sys_dir_on(sys, g_paths.mmc, dirs[*ndirs], 512);
 	if (dir_exists(dirs[*ndirs])) (*ndirs)++;
-	if (g_paths.sd_present) {
-		sys_dir_on(sys, g_paths.sd, dirs[*ndirs], 512);
-		if (dir_exists(dirs[*ndirs])) (*ndirs)++;
+	if (!g_paths.sd_present) return;
+#ifdef ZAPPO_KNULLI
+	if (g_paths.sd_stock) {
+		if (g_sys[sys].is_import || !g_sys[sys].dir[0]) return;
+		for (int k = 0; k < ARRAY_LEN(STOCK_DIRS) && *ndirs < MAX_SYS_DIRS; k++) {
+			if (strcmp(STOCK_DIRS[k].dir, g_sys[sys].dir)) continue;
+			snfmt(dirs[*ndirs], 512, "%s/Roms/%s", g_paths.sd, STOCK_DIRS[k].stock);
+			if (dir_exists(dirs[*ndirs])) (*ndirs)++;
+		}
+		return;
 	}
+#endif
+	sys_dir_on(sys, g_paths.sd, dirs[*ndirs], 512);
+	if (dir_exists(dirs[*ndirs])) (*ndirs)++;
 }
 
 void data_scan(void) {
@@ -585,14 +652,14 @@ void data_scan(void) {
 		char p[512];
 		sys_dir_on(i, g_paths.mmc, p, sizeof p);
 		s->on_tf1 = dir_exists(p);
-		sys_dir_on(i, g_paths.sd, p, sizeof p);
-		s->on_tf2 = g_paths.sd_present && dir_exists(p);
 		s->count = 0;
-		char dirs[2][512];
+		char dirs[MAX_SYS_DIRS][512];
 		int nd;
 		sys_dirs(i, dirs, &nd);
+		s->on_tf2 = nd > s->on_tf1;
 		reading_import = s->is_import;
 		reading_exts = s->exts;
+		reading_ports = !strcmp(s->dir[0] ? s->dir : s->code, "ports");
 		for (int k = 0; k < nd; k++) {
 			RawEnt *v;
 			int n = read_dir(dirs[k], is_script_system(i), &v);
@@ -634,12 +701,13 @@ static int cmp_entry(const void *a, const void *b) {
 
 void data_list_system(int sys, const char *dir, EntryList *out) {
 	el_clear(out);
-	char dirs[2][512];
+	char dirs[MAX_SYS_DIRS][512];
 	int nd = 0;
 	if (dir && *dir) { sncpy(dirs[0], dir, 512); nd = 1; }
 	else sys_dirs(sys, dirs, &nd);
 	reading_import = sys >= 0 && g_sys[sys].is_import;
 	reading_exts = sys >= 0 ? g_sys[sys].exts : NULL;
+	reading_ports = sys >= 0 && !strcmp(g_sys[sys].dir[0] ? g_sys[sys].dir : g_sys[sys].code, "ports");
 	for (int k = 0; k < nd; k++) {
 		RawEnt *v;
 		int n = read_dir(dirs[k], is_script_system(sys), &v);
@@ -760,6 +828,111 @@ static void add_listed(EntryList *out, const char *path) {
 	e->path = xstrdup(path);
 	e->sys = sys;
 	e->fav = data_is_fav(path);
+}
+
+/* does this console's folder take a file of this name? */
+static int sys_accepts(int sys, const char *name) {
+#ifdef ZAPPO_KNULLI
+	return knulli_ext_ok(g_sys[sys].exts, name);
+#else
+	(void)sys; (void)name;
+	return 1;
+#endif
+}
+
+int data_sys_takes(int sys, const char *name) { return sys_accepts(sys, name); }
+
+/* arcade sets look alike whichever arcade console's folder they're in */
+static int arcade_like(int sys) {
+	static const char *A[] = {"ARCADE", "FBNEO", "FBA2012", "MAME2000", "MAME2003", "MAME2010", "CPS1", "CPS2", "CPS3", "NEOGEO", "NAOMI", "ATOMISWAVE"};
+	for (int i = 0; i < ARRAY_LEN(A); i++) if (!strcmp(g_sys[sys].code, A[i])) return 1;
+	return 0;
+}
+
+typedef struct { char path[1024]; int sys; time_t when; uint8_t misplaced; } NewHit;
+
+static int cmp_newhit(const void *a, const void *b) {
+	const NewHit *x = a, *y = b;
+	if (x->misplaced != y->misplaced) return y->misplaced - x->misplaced;
+	return x->when > y->when ? -1 : x->when < y->when ? 1 : strcmp(x->path, y->path);
+}
+
+void data_list_new(EntryList *out) {
+	el_clear(out);
+	enum { MAXHIT = 120 };
+	NewHit *hits = xmalloc(sizeof(NewHit) * MAXHIT);
+	int nh = 0;
+	time_t since = time(NULL) - 30 * 24 * 3600;
+	for (int i = 0; i < g_nsys && nh < MAXHIT; i++) {
+		if (g_sys[i].is_import || !g_sys[i].dir[0] || !strcmp(g_sys[i].code, "VIDEOS")) continue;
+		char top[512];
+		sys_dir_on(i, g_paths.mmc, top, sizeof top);
+		/* the console's folder and its own subfolders (one level) */
+		char subs[32][512];
+		int nsub = 0;
+		sncpy(subs[nsub++], top, 512);
+		DIR *td = opendir(top);
+		struct dirent *te;
+		while (td && (te = readdir(td)) && nsub < 32) {
+			if (te->d_name[0] == '.' || str_ieq(te->d_name, "images") || str_ieq(te->d_name, "Imgs")) continue;
+#ifdef ZAPPO_KNULLI
+			if (knulli_media_dir(te->d_name)) continue;
+#endif
+			char p[1024];
+			snfmt(p, sizeof p, "%s/%s", top, te->d_name);
+			if (dir_exists(p)) sncpy(subs[nsub++], p, 512);
+		}
+		if (td) closedir(td);
+		for (int si = 0; si < nsub && nh < MAXHIT; si++) {
+		const char *dir = subs[si];
+		DIR *d = opendir(dir);
+		if (!d) continue;
+		struct dirent *e;
+		while ((e = readdir(d)) && nh < MAXHIT) {
+			const char *nm = e->d_name;
+			if (nm[0] == '.' || e->d_type == DT_DIR || data_is_junk(nm)) continue;
+			char p[1024];
+			snfmt(p, sizeof p, "%s/%s", dir, nm);
+			struct stat st;
+			if (stat(&p[0], &st) != 0 || !S_ISREG(st.st_mode)) continue;
+			int ok = sys_accepts(i, nm), mis = 0;
+			if (ok) {
+				/* a zip or disc image the console would take by name: is it really one of its? */
+				const char *x = path_ext(nm);
+				if (str_ieq(x, "zip") || str_ieq(x, "iso") || str_ieq(x, "bin") || str_ieq(x, "img") || str_ieq(x, "chd")) {
+					int g = import_guess(p, 0);
+					if (g >= 0 && g != i && !(arcade_like(g) && arcade_like(i))) mis = 1;
+				}
+				if (!mis && st.st_mtime < since) continue;
+			} else {
+				/* not this console's kind of file: is it some console's game? */
+				if (import_ignored(p)) continue;
+				int g = import_guess(p, 0);
+				if (g < 0 || g == i || (arcade_like(g) && arcade_like(i))) continue;
+				mis = 1;
+			}
+			NewHit *h = &hits[nh++];
+			sncpy(h->path, p, sizeof h->path);
+			h->sys = i;
+			h->when = st.st_mtime;
+			h->misplaced = (uint8_t)mis;
+		}
+		closedir(d);
+		}
+	}
+	qsort(hits, (size_t)nh, sizeof(NewHit), cmp_newhit);
+	for (int k = 0; k < nh; k++) {
+		Entry *en = el_push(out);
+		char disp[256];
+		if (hits[k].misplaced) sncpy(disp, path_base(hits[k].path), sizeof disp);
+		else data_display_name(hits[k].sys, hits[k].path, 0, disp, sizeof disp);
+		en->name = xstrdup(disp);
+		en->path = xstrdup(hits[k].path);
+		en->sys = hits[k].sys;
+		en->fav = data_is_fav(hits[k].path);
+		en->misplaced = hits[k].misplaced;
+	}
+	free(hits);
 }
 
 void data_list_favorites(EntryList *out) {
@@ -887,7 +1060,8 @@ void data_recent_remove(const char *path) {
 int data_art_path(const Entry *e, char *out, size_t n) {
 	if (e->is_dir) return 0;
 #ifdef ZAPPO_KNULLI
-	if (e->sys >= 0) return knulli_art(e, out, n);
+	if (e->sys >= 0 && knulli_art(e, out, n)) return 1;
+	/* else: a stock Anbernic card's game (TF2) keeps its art beside it, in Imgs */
 #endif
 	char dir[512], stem[256];
 	path_dir(e->path, dir, sizeof dir);
@@ -987,7 +1161,7 @@ int data_cores_for_system(int sys, StrList *out) {
 	if (is_script_system(sys) || g_sys[sys].is_import) return out->n;
 	/* gather the file extensions present in this system's folders */
 	StrList exts = {0};
-	char dirs[2][512];
+	char dirs[MAX_SYS_DIRS][512];
 	int nd;
 	sys_dirs(sys, dirs, &nd);
 	for (int k = 0; k < nd; k++) {

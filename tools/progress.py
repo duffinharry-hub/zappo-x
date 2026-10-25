@@ -147,6 +147,9 @@ code{font-family:var(--mono);font-size:.88em;background:var(--bg);padding:1px 5p
 figure{margin:0;display:grid;gap:8px}
 figure img{width:100%;height:auto;border-radius:10px;display:block}
 figcaption{color:var(--dim);font-size:14px}
+.parked{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.parked li{padding-left:14px;border-left:3px solid var(--gold-fill);color:var(--dim)}
+.parked li b{color:var(--ink);display:block;margin-bottom:2px}
 </style>
 """
 
@@ -183,6 +186,8 @@ def build(p, plan, when):
                        E(m["title"]), state, {"done": "Done", "now": "In progress", "next": "Next"}[state], items))
     you = "".join('<li class="%s"><span class="box" aria-hidden="true"></span><span class="txt">%s</span></li>'
                   % ("done" if n["done"] else "", E(n["text"])) for n in p.get("you", []))
+    parked = "".join('<li><b>%s</b> %s</li>' % (E(x["title"]), E(x["text"])) for x in p.get("parked", []))
+    parked = ('<section class="panel"><div class="eyebrow">Parked for later</div><ul class="parked">%s</ul></section>' % parked) if parked else ""
     secs = "".join('<div class="sec">%s<div><b>%s</b><span>%s Zappo &middot; %s</span></div></div>'
                    % (ring(8, s["colour"], 40, False, "%s lights" % s["name"]), E(s["name"]), E(s["zappo"]), E(s["motion"]))
                    for s in p.get("sections", []))
@@ -197,12 +202,13 @@ def build(p, plan, when):
 <section class="panel now"><div class="eyebrow">Right now</div><p>%s</p></section>
 %s
 <section class="panel"><div class="eyebrow">Waiting on you</div><ul class="checks">%s</ul></section>
+%s
 <section class="ms"><h2>Milestones</h2>%s</section>
 <section class="ms"><h2>Sections and their Zappos</h2><div class="secs">%s</div>
 <p class="foot">Each section gets its own animated background, and the stick lights take its colour as you move between them.</p></section>
 <details><summary>The full plan</summary><div class="plan">%s</div></details>
 </main>""" % (ring(done_count, "var(--gold-fill)", 76, False, "%d of %d milestones done" % (done_count, len(ms))),
-              done_count, len(ms), E(when), E(p.get("now", "")), latest(p), you, "".join(rows), secs, md(plan)))
+              done_count, len(ms), E(when), E(p.get("now", "")), latest(p), you, parked, "".join(rows), secs, md(plan)))
 
 
 def main(out_dir):

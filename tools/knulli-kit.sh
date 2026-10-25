@@ -10,8 +10,6 @@ cd "$(dirname "$0")/.."
 make -s knulli
 sh tools/knulli-package.sh >/dev/null
 P=build/knulli-pkg
-ver="$(sed -n 's/.*CLOVE_VERSION "\(.*\)".*/\1/p' src/util.h | head -n1)"
-printf '%s (%s, %s)\n' "$ver" "$(git rev-parse --short HEAD 2>/dev/null || echo local)" "$(date +%Y-%m-%d)" > $P/zappo-x/VERSION
 K="build/zappo-x-kit/Zappo X Kit"
 rm -rf build/zappo-x-kit && mkdir -p "$K/tools" "$K/card/zappo-x-kit"
 # Windows files with Windows line ends; what runs on the handheld keeps Unix ones
@@ -19,6 +17,7 @@ for f in "Zappo X.bat" "READ ME.txt"; do sed 's/$/\r/' "pc-x/$f" > "$K/$f"; done
 for f in pc-x/tools/*.ps1; do sed 's/$/\r/' "$f" > "$K/tools/$(basename "$f")"; done
 cp pc-x/zappo-x-kit.sh LICENSE THIRD-PARTY.md "$K/"
 cp knulli/postshare.sh "$K/card/postshare.sh"
+cp knulli/survey-tf2.sh "$K/card/zappo-x-kit/survey-tf2.sh"   # one read-only look at TF2 (stock card games)
 cp -a $P "$K/card/zappo-x-kit/install"
 sh tools/make-test-pack.sh "$K/test-pack" >/dev/null
 rm -f build/Zappo-X-Kit.zip

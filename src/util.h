@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #ifdef ZAPPO_KNULLI
-#define CLOVE_VERSION "X 0.1"
+#define CLOVE_VERSION "X 0.1.6"
 #define FW_NAME "Knulli"
 /* the tab that opens the firmware's own menu */
 #define FW_MENU_TAB "Knulli"

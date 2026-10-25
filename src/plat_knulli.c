@@ -212,23 +212,34 @@ static long long led_file_stamp(void) {
 	return stat(LED_VALUES, &sb) == 0 ? (long long)sb.st_mtime * 1000003LL + sb.st_size + (long long)sb.st_ino * 7919 : -1;
 }
 
-/* the values line for now, or 0 when Knulli's own setting applies */
+/* the values line for now, or 0 when Knulli's own setting applies. With
+ * Zappo's section colours, the effect, brightness and speed are still Knulli's
+ * (led.mode, led.brightness, led.speed): only the colour follows the section. */
 static int lights_line(char *out, size_t n) {
-	int mode = g_set.lights;
-	if (mode == LIGHTS_KNULLI) return 0;
-	if (mode == LIGHTS_OFF) { snfmt(out, n, "0 0 0 0 0 0 0 0 0\n"); return 1; }
-	int ci = g_set.lights_colour;
-	if (mode == LIGHTS_FOLLOW) {
-		int t = ui_tab();
-		if (t < 0 || t >= (int)ARRAY_LEN(SECTION_COLOUR)) t = 2;
-		ci = SECTION_COLOUR[t];
-	}
-	uint32_t c = plat_light_colours[CLAMP(ci, 0, LIGHT_COLOURS - 1)].rgb;
+	if (g_set.lights != LIGHTS_FOLLOW) return 0;
+	int mode = CLAMP(plat_conf_int("led.mode", 1), 0, 6);
+	if (mode == 0) { snfmt(out, n, "0 0 0 0 0 0 0 0 0\n"); return 1; }
+	int t = ui_tab();
+	if (t < 0 || t >= (int)ARRAY_LEN(SECTION_COLOUR)) t = 2;
+	uint32_t c = plat_light_colours[CLAMP(SECTION_COLOUR[t], 0, LIGHT_COLOURS - 1)].rgb;
 	int r = (int)(c >> 16) & 255, g = (int)(c >> 8) & 255, b = (int)c & 255;
-	static const int EFFECT_MODE[] = {1, 4, 3, 2}; /* steady, slow, medium, fast breathing */
-	snfmt(out, n, "%d %d %d %d %d %d %d %d %d\n", EFFECT_MODE[CLAMP(g_set.lights_effect, 0, 3)],
-	      plat_conf_int("led.brightness", 70), plat_conf_int("led.speed", 5), r, g, b, r, g, b);
+	snfmt(out, n, "%d %d %d %d %d %d %d %d %d\n", mode,
+	      plat_conf_int("led.brightness", 70), plat_conf_int("led.speed", 0), r, g, b, r, g, b);
 	return 1;
+}
+
+/* Zappo X 0.1 had its own "one colour" and "off": they become Knulli's settings */
+static void lights_migrate(void) {
+	if (g_set.lights == LIGHTS_ONE) {
+		uint32_t c = plat_light_colours[CLAMP(g_set.lights_colour, 0, LIGHT_COLOURS - 1)].rgb;
+		char v[32];
+		snfmt(v, sizeof v, "%d %d %d", (int)(c >> 16) & 255, (int)(c >> 8) & 255, (int)c & 255);
+		plat_conf_set("led.colour", v);
+		g_set.lights = LIGHTS_KNULLI;
+	} else if (g_set.lights == LIGHTS_OFF) {
+		plat_conf_set("led.mode", "0");
+		g_set.lights = LIGHTS_KNULLI;
+	}
 }
 
 static void lights_write(const char *line) {
@@ -245,6 +256,7 @@ static void lights_write(const char *line) {
 /* force: write even if nothing changed on Zappo's side */
 static void lights_update(int force) {
 	if (!plat_lights_available()) return;
+	lights_migrate();
 	if (g_set.lights == LIGHTS_KNULLI) {
 		if (led_mode_applied != LIGHTS_KNULLI) {
 			/* hand back to Knulli's own colours and effect */
@@ -672,6 +684,7 @@ void plat_cpu_set(const char *governor, int max_khz, int min_khz) {
 	if (max_khz > 0) write_int(CPU_DIR "/scaling_max_freq", max_khz);
 }
 int plat_cpu_cur(void) { return read_int(CPU_DIR "/scaling_cur_freq", 0); }
+int plat_cpu_max(void) { return read_int(CPU_DIR "/cpuinfo_max_freq", 0); }
 
 void plat_describe(char *out, size_t n) {
 	char gov[32] = "?", model[64] = "?";
@@ -800,12 +813,55 @@ static void crash_handlers(void) {
 	for (int i = 0; i < 5; i++) sigaction(sigs[i], &sa, NULL);
 }
 
+static double uptime_s(void) {
+	double u = 0;
+	FILE *f = fopen("/proc/uptime", "r");
+	if (f) { if (fscanf(f, "%lf", &u) != 1) u = 0; fclose(f); }
+	return u;
+}
+
+/* A stock Anbernic card in TF2: Knulli mounts its partitions under /media; the
+ * one with a Roms folder of console folders holds its games, which Zappo X
+ * lists beside the Knulli card's own (data.c: STOCK_DIRS). Only read. */
+static void find_stock_card(void) {
+	for (int tries = 0; tries < 20 && !g_paths.sd_present; tries++) {
+		FILE *f = fopen("/proc/mounts", "r");
+		if (!f) return;
+		char dev[128], mp[256];
+		while (fscanf(f, "%127s %255s %*s %*s %*d %*d", dev, mp) == 2) {
+			if (!str_starts_with(mp, "/media/") || !str_starts_with(dev, "/dev/")) continue;
+			if (!strcmp(mp, "/media/SHARE") || !strcmp(mp, "/media/BATOCERA")) continue;
+			char p[300];
+			snfmt(p, sizeof p, "%s/Roms", mp);
+			if (!dir_exists(p)) continue;
+			int known = 0;
+			static const char *SOME[] = {"MD", "GBA", "PS", "FC", "SFC", "MAME", "GB", "PSP"};
+			for (int k = 0; k < ARRAY_LEN(SOME) && !known; k++) {
+				snfmt(p, sizeof p, "%s/Roms/%s", mp, SOME[k]);
+				known = dir_exists(p);
+			}
+			if (!known) continue;
+			sncpy(g_paths.sd, mp, sizeof g_paths.sd);
+			g_paths.sd_present = g_paths.sd_stock = 1;
+			LOG("TF2: a stock Anbernic card at %s (%s): its games are listed too", mp, dev);
+			break;
+		}
+		fclose(f);
+		/* just after switch-on Knulli may still be mounting it: wait up to 5 s
+		 * then, if a second card is in at all (later starts don't wait) */
+		if (g_paths.sd_present || !file_exists("/dev/mmcblk1") || uptime_s() > 90) break;
+		usleep(250000);
+	}
+}
+
 int plat_init(void) {
 	t_start = now_ms();
 	const char *root = getenv("ZAPPO_USERDATA");
 	sncpy(g_paths.mmc, root && *root ? root : "/userdata", sizeof g_paths.mmc);
 	g_paths.sd[0] = 0;
 	g_paths.sd_present = 0;
+	g_paths.sd_stock = 0;
+	find_stock_card();
 	snfmt(g_paths.cfw, sizeof g_paths.cfw, "%s/system", g_paths.mmc);
 	snfmt(g_paths.clove, sizeof g_paths.clove, "%s/zappo-x", g_paths.cfw);
 	snfmt(g_paths.music, sizeof g_paths.music, "%s/music", g_paths.mmc);

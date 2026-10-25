@@ -245,6 +245,7 @@ void plat_cpu_set(const char *governor, int max_khz, int min_khz) {
 	if (max_khz > 0) write_int(CPU_DIR "/scaling_max_freq", max_khz);
 }
 int plat_cpu_cur(void) { return read_int(CPU_DIR "/scaling_cur_freq", 0); }
+int plat_cpu_max(void) { return read_int(CPU_DIR "/cpuinfo_max_freq", 0); }
 
 void plat_describe(char *out, size_t n) {
 	char gov[32] = "?";

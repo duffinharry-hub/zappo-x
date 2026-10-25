@@ -15,7 +15,7 @@ before() { [ -f $B/postshare.before-zappo-x.sh ] && bash $B/postshare.before-zap
 
 if [ "$1" != start ] || [ ! -d $K ]; then before "$@"; exit 0; fi
 work=
-[ -d $K/install ] || [ -d $K/test-pack ] || [ -f $K/remove ] && work=1
+[ -d $K/install ] || [ -d $K/test-pack ] || [ -f $K/remove ] || [ -f $K/survey-tf2.sh ] && work=1
 [ -z "$work" ] && { before "$@"; exit 0; }
 
 mount -o remount,rw $B 2>/dev/null
@@ -70,6 +70,13 @@ if [ -d $K/test-pack ]; then
 		done
 	done
 	mv $K/test-pack $K/done/test-pack-$stamp
+fi
+
+if [ -f $K/survey-tf2.sh ]; then
+	say "looking at the second card (TF2), read-only"
+	sh $K/survey-tf2.sh > $K/tf2-survey.txt 2>&1
+	mv $K/survey-tf2.sh $K/done/survey-tf2-$stamp.sh
+	say "done: zappo-x-kit/tf2-survey.txt (nothing on TF2 was changed)"
 fi
 
 sync

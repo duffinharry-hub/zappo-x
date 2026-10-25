@@ -19,6 +19,9 @@ All under the SIL Open Font License 1.1; the full licence text and each copyrigh
 
 The wordmark in the generated artwork uses Poppins (OFL, Indian Type Foundry) at build time; the font itself is not shipped.
 
+## Console pictures
+- `tablet/icons/` and `knulli/icons/`: RetroArch's **Systematic** icons (libretro/retroarch-assets, `xmb/systematic/png`), CC BY 4.0, by the libretro team; resized only. Credits in each folder's README.md.
+
 ## Not included - fetched or patched on the user's own PC
 - **ffmpeg** (GPL/LGPL, gyan.dev builds): the Windows kit downloads it on first use into `tools\ffmpeg` with its licence; it is never redistributed by Zappo.
 - **GarlicOS's FFmpeg RetroArch core**: Zappo does not ship it. `pc/tools/player-fix.ps1` changes 47 bytes of the user's own copy (an `lseek64` argument-order fix) after checking its MD5, and can restore it.

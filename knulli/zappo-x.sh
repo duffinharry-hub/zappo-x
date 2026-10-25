@@ -46,8 +46,30 @@ screen_free() {
 	done
 }
 
+# An update Zappo X said yes to (Settings > About): the package waiting in
+# /userdata/system/zappo-x-update is installed by its own install.sh (the
+# old Zappo X is moved aside, settings carried over), then this loop starts
+# again from the new folder. The package is kept under installed/.
+U=/userdata/system/zappo-x-update
+install_update() {
+	rm -f "$D/update-now"
+	T=$U/zappo-x-knulli.tar
+	[ -f "$T" ] || { echo "$(date) update: nothing in $U" >> $RUNS; return; }
+	echo "$(date) update: installing $(cat $T.version 2>/dev/null)" >> $RUNS
+	rm -rf /tmp/zappo-x-update && mkdir -p /tmp/zappo-x-update
+	if tar -C /tmp/zappo-x-update -xf "$T" && sh /tmp/zappo-x-update/install.sh >> $RUNS 2>&1; then
+		mkdir -p $U/installed
+		mv -f "$T" "$U/installed/zappo-x-knulli-$(date +%Y%m%d-%H%M%S).tar"
+		mv -f "$T.version" "$U/installed/" 2>/dev/null
+		echo "$(date) update: done, starting the new Zappo X" >> $RUNS
+		sync
+		exec "$D/zappo-x.sh"
+	fi
+	echo "$(date) update: install.sh failed; the package is still there" >> $RUNS
+}
+
 # something left from before a restart would start by itself: not wanted
-rm -f "$D/command.sh"
+rm -f "$D/command.sh" "$D/update-now"
 echo "$(date) start" >> $RUNS
 fails=0
 while :; do
@@ -68,6 +90,7 @@ while :; do
 		continue
 	fi
 	echo "$(date) Zappo X exit $rc after $((t1 - t0)) s" >> $RUNS
+	[ -f "$D/update-now" ] && install_update
 	[ $rc = 4 ] && knulli_menu "buttons not recognised"
 	if [ $rc = 5 ]; then OUTPUT=; continue; fi   # the screen changed (TV in or out, its picture size)
 	if [ $rc != 0 ] && [ $((t1 - t0)) -lt 10 ]; then

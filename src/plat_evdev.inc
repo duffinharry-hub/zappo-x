@@ -31,6 +31,8 @@ typedef struct {
 	int axis_mid[ABS_CNT];
 	int hat_x, hat_y;
 	int axis_down[ABS_CNT];
+	int by_code;               /* buttons matched by evdev code (Knulli's es_input.cfg) */
+	int16_t code_btn[B_COUNT]; /* the code for each Zappo button, 0 = none */
 } InDev;
 
 static InDev devs[MAX_DEV];
@@ -60,6 +62,79 @@ static const int STOCK_KEYS[B_COUNT] = {
 	/* MinUI's notes for the stock RG35XX kernel's gpio-keys-polled device */
 	90, 91, 92, 93, 94, 95, 96, 97, 100, 101, 102, 103, 99, 98, 104, 108, 109, 116,
 };
+
+#ifdef ZAPPO_KNULLI
+/* Knulli's own button settings for a pad, by name: the user's es_input.cfg
+ * (where Knulli keeps a mapping made in its menu) first, then the one Knulli
+ * ships. Each <input name=".." type="button" code=".."> gives the evdev code
+ * of one button, so Zappo X presses exactly what Knulli's menu presses -
+ * whatever order the pad numbers its buttons in. */
+static const struct { const char *name; int b; } ES_BUTTONS[] = {
+	{"a", B_A}, {"b", B_B}, {"x", B_X}, {"y", B_Y}, {"pageup", B_L1}, {"pagedown", B_R1},
+	{"l2", B_L2}, {"r2", B_R2}, {"select", B_SELECT}, {"start", B_START}, {"hotkey", B_MENU},
+};
+
+static int attr_of(const char *tag, const char *end, const char *attr, char *out, size_t n) {
+	char key[32];
+	snfmt(key, sizeof key, " %s=\"", attr);
+	const char *p = strstr(tag, key);
+	if (!p || p > end) return 0;
+	p += strlen(key);
+	const char *q = strchr(p, '"');
+	if (!q || q > end) return 0;
+	snfmt(out, n, "%.*s", (int)(q - p), p);
+	return 1;
+}
+
+static int es_input_codes(const char *file, const char *dev, int16_t *codes) {
+	char *txt = file_read_all(file, NULL);
+	if (!txt) return 0;
+	char want[80];
+	snfmt(want, sizeof want, "deviceName=\"%s\"", dev);
+	int found = 0;
+	for (char *p = strstr(txt, "<inputConfig"); p && !found; p = strstr(p + 1, "<inputConfig")) {
+		char *head_end = strchr(p, '>');
+		char *end = strstr(p, "</inputConfig>");
+		if (!head_end || !end) break;
+		if (!strstr(p, want) || strstr(p, want) > head_end) continue;
+		char tp[16];
+		if (!attr_of(p, head_end, "type", tp, sizeof tp) || strcmp(tp, "joystick")) continue;
+		for (char *in = strstr(p, "<input "); in && in < end; in = strstr(in + 1, "<input ")) {
+			char *ie = strchr(in, '>');
+			char nm[24], ty[16], cd[16];
+			if (!ie || !attr_of(in, ie, "name", nm, sizeof nm) || !attr_of(in, ie, "type", ty, sizeof ty)) continue;
+			if (strcmp(ty, "button") || !attr_of(in, ie, "code", cd, sizeof cd)) continue;
+			for (int k = 0; k < ARRAY_LEN(ES_BUTTONS); k++)
+				if (!strcmp(nm, ES_BUTTONS[k].name)) { codes[ES_BUTTONS[k].b] = (int16_t)atoi(cd); found = 1; }
+		}
+	}
+	free(txt);
+	return found;
+}
+
+/* A gamepad's buttons by code, from Knulli's settings; the RG40XX family's own
+ * pads fall back to the codes in the es_input.cfg Knulli ships for them. */
+static void knulli_pad_codes(InDev *d) {
+	int16_t c[B_COUNT];
+	memset(c, 0, sizeof c);
+	const char *from = NULL;
+	if (es_input_codes("/userdata/system/configs/emulationstation/es_input.cfg", d->name, c)) from = "your Knulli settings";
+	else if (es_input_codes("/usr/share/emulationstation/es_input.cfg", d->name, c)) from = "Knulli's settings";
+	else if (strstr(d->name, "Anbernic RG")) {
+		static const int16_t RG[][2] = {{B_A, 304}, {B_B, 305}, {B_Y, 306}, {B_X, 307}, {B_L1, 308}, {B_R1, 309},
+		                                {B_SELECT, 310}, {B_START, 311}, {B_MENU, 312}, {B_L2, 314}, {B_R2, 315}};
+		for (int k = 0; k < ARRAY_LEN(RG); k++) c[RG[k][0]] = RG[k][1];
+		from = "the built-in RG40XX codes";
+	}
+	if (!from) return;
+	memcpy(d->code_btn, c, sizeof c);
+	d->by_code = 1;
+	char list[200] = "";
+	for (int b = 0; b < B_COUNT; b++)
+		if (c[b]) snfmt(list + strlen(list), sizeof list - strlen(list), " %s=%d", BUTTON_NAMES[b], c[b]);
+	LOG("input \"%s\": buttons by code, from %s:%s", d->name, from, list);
+}
+#endif
 
 static void open_inputs(void) {
 	for (int i = 0; i < 32 && ndevs < MAX_DEV; i++) {
@@ -103,6 +178,15 @@ static void open_inputs(void) {
 		d->is_stock_keys = strcmp(d->name, "gpio-keys-polled") == 0;
 		if (d->is_joy) have_joy = 1;
 		LOG("input %s: \"%s\" buttons %d axes %d joy %d", path, d->name, nb, na, d->is_joy);
+#ifdef ZAPPO_KNULLI
+		if (d->is_joy) {
+			char codes[160] = "";
+			for (int k = BTN_MISC; k < KEY_MAX && strlen(codes) < sizeof codes - 8; k++)
+				if (TEST_BIT(k, keybit)) snfmt(codes + strlen(codes), sizeof codes - strlen(codes), " %d", k);
+			LOG("input %s: button codes%s", path, codes);
+			knulli_pad_codes(d);
+		}
+#endif
 		ndevs++;
 	}
 }
@@ -110,6 +194,12 @@ static void open_inputs(void) {
 static void map_key(InDev *d, int code, int value) {
 	if (value == 2) return; /* kernel auto-repeat: the UI does its own */
 	int pressed = value != 0;
+	if (d->by_code && code >= BTN_MISC) {
+		for (int b = 0; b < B_COUNT; b++)
+			if (d->code_btn[b] == code) { push(b, pressed, d, EV_KEY, code, value); return; }
+		push(-1, pressed, d, EV_KEY, code, value);
+		return;
+	}
 	if (d->is_joy && code >= BTN_MISC && d->btn_index[code] >= 0) {
 		int idx = d->btn_index[code];
 		for (int b = 0; b < B_COUNT; b++)

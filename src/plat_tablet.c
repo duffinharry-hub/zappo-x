@@ -608,6 +608,7 @@ void plat_cpu_set(const char *governor, int max_khz, int min_khz) {
 	if (max_khz > 0) cpu_max = max_khz;
 }
 int plat_cpu_cur(void) { return read_int_file("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", cpu_max); }
+int plat_cpu_max(void) { return cpu_max; }
 
 void plat_describe(char *out, size_t n) {
 	long cores = sysconf(_SC_NPROCESSORS_ONLN);

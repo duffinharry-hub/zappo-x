@@ -76,7 +76,7 @@ These are guesses until the real handheld is here:
 
 - How fast the light controller breathes and cycles, and where LED 0 sits on
   each ring.
-- What the three lowest button codes (288-290) are on the real controller.
+- (Answered 22 Oct 2026: the real controller has 14 buttons from code 304 up, no lower ones.)
 - The real model string in the handheld's device tree.
 - Real timings: the twin's processor is emulated, so it is far slower than an
   H700. Speed is measured on the tablet test bench, and on the handheld.

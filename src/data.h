@@ -28,6 +28,7 @@ typedef struct {
 	int sys;
 	uint8_t is_dir;
 	uint8_t fav;
+	uint8_t misplaced;  /* in a console's folder but not that console's kind of file (New & out of place) */
 } Entry;
 
 typedef struct {
@@ -57,6 +58,10 @@ void data_display_name(int sys, const char *path, int is_dir, char *out, size_t 
 int data_is_fav(const char *path);
 int data_fav_toggle(const Entry *e); /* returns new state */
 void data_recent_remove(const char *path);
+/* Games added in the last month, newest first, after anything sitting in the
+ * wrong console's folder (a PSP disc in nds/, say): the New & out of place list */
+void data_list_new(EntryList *out);
+int data_sys_takes(int sys, const char *name);   /* does the console's folder take a file of this name? */
 
 int data_art_path(const Entry *e, char *out, size_t n);
 int data_icon_path(int sys, char *out, size_t n);

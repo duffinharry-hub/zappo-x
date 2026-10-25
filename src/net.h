@@ -24,6 +24,9 @@ typedef struct {
 	char ssid[64];
 	char ip[48];
 	int known;       /* a refresh has finished at least once */
+	int hybrid;      /* Knulli's "wireless_hybrid_fix" service is on: it stops the network
+	                    manager (connman) and joins with bare wpa_supplicant, which never
+	                    gets an address - nothing can connect while it's on */
 } WifiStatus;
 
 int net_poll(void);                 /* 1 when results changed (redraw) */
@@ -38,6 +41,7 @@ void net_wifi_power(int on);
  * isn't lost to a typo. key "" for an open network or one already saved. */
 void net_wifi_connect(const WifiNet *n, const char *key);
 void net_wifi_forget(const WifiNet *n);
+void net_wifi_unhybrid(void);       /* switch that service off: connman back in charge */
 void net_wifi_status(WifiStatus *out);
 int net_wifi_list(WifiNet *out, int max);  /* strongest first */
 
@@ -88,6 +92,13 @@ typedef struct {
 } RaResult;
 void net_ra_signin(const char *user, const char *pass);  /* checks the account (background job) */
 int net_ra_take(RaResult *out);  /* 1 once, when a sign-in check has finished */
+
+/* ---------------------------------------------- Updates from the internet */
+
+/* Zappo X's own releases on GitHub (zappo-update-check.py): a newer one is
+ * downloaded into the updates folder, where About offers to install it. */
+void net_update_check(void);
+const char *net_update_status(void);  /* "" or the last check's one-line result */
 
 /* ------------------------------------------------------------- Box art */
 

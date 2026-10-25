@@ -27,6 +27,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 /* Sorting a sent folder of several games one by one (the tablet for now: the
@@ -195,6 +196,7 @@ static const char *sniff_image(const char *path) {
 		unsigned char v[48];
 		if (read_at(path, (off_t)pvd[i], v, sizeof v) == sizeof v && memcmp(v + 1, "CD001", 5) == 0) {
 			if (memcmp(v + 8, "PLAYSTATION", 11) == 0) return "PS";
+			if (memcmp(v + 8, "PSP GAME", 8) == 0) return "PSP";	/* a UMD image */
 			return NULL; /* a CD, but not one we can place */
 		}
 	}
@@ -301,6 +303,82 @@ static int zip_names(const char *path, StrList *out) {
 	return rc;
 }
 
+#ifdef ZAPPO_ZLIB
+#include <zlib.h>
+/* The first `want` bytes of one file inside a .zip (stored or deflated),
+ * found by name: enough to read a disc image's volume descriptor without
+ * unpacking the whole thing. Bytes read, or -1. */
+static long zip_entry_head(const char *path, const char *entry, unsigned char *out, size_t want) {
+	long long size = size_of(path);
+	if (size < 22) return -1;
+	size_t tail = (size_t)MIN(size, 66000LL);
+	unsigned char *b = xmalloc(tail);
+	long got = -1;
+	if (read_at(path, (off_t)(size - (long long)tail), b, tail) == tail) {
+		for (long i = (long)tail - 22; i >= 0; i--) {
+			if (le32(b + i) != 0x06054b50) continue;
+			uint32_t cd_size = le32(b + i + 12), cd_off = le32(b + i + 16);
+			if (cd_off == 0xFFFFFFFFu || cd_size > (4u << 20)) break;
+			unsigned char *cd = xmalloc(cd_size + 1);
+			if (read_at(path, (off_t)cd_off, cd, cd_size) == cd_size) {
+				for (uint32_t p = 0; p + 46 <= cd_size;) {
+					if (le32(cd + p) != 0x02014b50) break;
+					uint16_t method = le16(cd + p + 10), nl = le16(cd + p + 28), xl = le16(cd + p + 30), cl = le16(cd + p + 32);
+					uint32_t lho = le32(cd + p + 42);
+					if (p + 46 + nl > cd_size) break;
+					if (nl == strlen(entry) && !memcmp(cd + p + 46, entry, nl)) {
+						unsigned char lh[30];
+						if (read_at(path, (off_t)lho, lh, 30) == 30 && le32(lh) == 0x04034b50) {
+							off_t data = (off_t)lho + 30 + le16(lh + 26) + le16(lh + 28);
+							if (method == 0) got = (long)read_at(path, data, out, want);
+							else if (method == 8) {
+								size_t cn = want + 4096;
+								unsigned char *cbuf = xmalloc(cn);
+								size_t have = read_at(path, data, cbuf, cn);
+								z_stream z = {0};
+								if (have && inflateInit2(&z, -15) == Z_OK) {
+									z.next_in = cbuf; z.avail_in = (uInt)have;
+									z.next_out = out; z.avail_out = (uInt)want;
+									int r = inflate(&z, Z_SYNC_FLUSH);
+									if (r == Z_OK || r == Z_STREAM_END || r == Z_BUF_ERROR) got = (long)(want - z.avail_out);
+									inflateEnd(&z);
+								}
+								free(cbuf);
+							}
+						}
+						break;
+					}
+					p += 46u + nl + xl + cl;
+				}
+			}
+			free(cd);
+			break;
+		}
+	}
+	free(b);
+	return got;
+}
+
+/* a disc image inside a .zip: PlayStation, PSP, Sega CD, Mega Drive ... from its first bytes */
+static const char *sniff_zipped_image(const char *path, const char *entry) {
+	unsigned char *b = xmalloc(0x8040);
+	long n = zip_entry_head(path, entry, b, 0x8040);
+	const char *r = NULL;
+	if (n >= 0x110) {
+		if (memcmp(b, "SEGADISCSYSTEM", 14) == 0 || memcmp(b + 0x10, "SEGADISCSYSTEM", 14) == 0) r = "SEGACD";
+		else if (memcmp(b + 0x100, "SEGA", 4) == 0) r = memcmp(b + 0x100, "SEGA 32X", 8) == 0 ? "THIRTYTWOX" : "MD";
+	}
+	if (!r && n >= 0x8030 && memcmp(b + 0x8001, "CD001", 5) == 0) {
+		if (memcmp(b + 0x8008, "PLAYSTATION", 11) == 0) r = "PS";
+		else if (memcmp(b + 0x8008, "PSP GAME", 8) == 0) r = "PSP";
+	}
+	free(b);
+	return r;
+}
+#else
+static const char *sniff_zipped_image(const char *path, const char *entry) { (void)path; (void)entry; return NULL; }
+#endif
+
 static const char *sniff_zip(const char *path) {
 	StrList names = {0};
 	const char *code = NULL;
@@ -310,6 +388,8 @@ static const char *sniff_zip(const char *path) {
 			const char *base = path_base(names.v[i]);
 			if (is_ignored(base)) continue;
 			const char *c = ext_code(path_ext(base));
+			if (!c && (str_ieq(path_ext(base), "iso") || str_ieq(path_ext(base), "img") || str_ieq(path_ext(base), "bin")))
+				c = sniff_zipped_image(path, names.v[i]);	/* a disc image: which console's? */
 #ifdef SORT_COLLECTIONS
 			if (c && !strcmp(c, "VIDEOS")) continue;	/* (films in a .zip: not playable as they are) */
 #endif
@@ -392,6 +472,20 @@ static int guess_file(const char *path, int allow_bios) {
 	if (str_ieq(ext, "md") && size_of(path) < 65536) return -1; /* a Markdown note, not a Mega Drive game */
 	const char *c = ext_code(ext);
 	if (c) return sys_of_code(c);
+	if (str_ieq(ext, "iso") || str_ieq(ext, "xiso")) {
+#ifdef ZAPPO_KNULLI
+		/* an original Xbox disc: for the Halo CE port, when it's installed */
+		static const long long XOFF[] = {0x10000, 0x18300000LL + 0x10000, 0x1FB20000LL + 0x10000};
+		for (int i = 0; i < 3; i++) {
+			unsigned char m[20];
+			if (read_at(path, (off_t)XOFF[i], m, 20) == 20 && memcmp(m, "MICROSOFT*XBOX*MEDIA", 20) == 0) {
+				char h[600];
+				snfmt(h, sizeof h, "%s/roms/ports/halo", g_paths.mmc);
+				return dir_exists(h) ? IMPORT_TO_HALO : -1;
+			}
+		}
+#endif
+	}
 	if (str_ieq(ext, "bin") || str_ieq(ext, "iso") || str_ieq(ext, "img")) return sys_of_code(sniff_image(path));
 	if (str_ieq(ext, "cue")) return sys_of_code(sniff_cue(path));
 	if (str_ieq(ext, "chd")) return sys_of_code(sniff_chd(path));
@@ -624,6 +718,10 @@ int import_move(const char *path, int target, char *err, size_t errn) {
 		}
 		return move_one(path, dstdir, 0, err, errn);
 	}
+	if (target == IMPORT_TO_HALO) {
+		snfmt(dstdir, sizeof dstdir, "%s/roms/ports/halo", g_paths.mmc);
+		return move_one(path, dstdir, 0, err, errn);
+	}
 	if (target == IMPORT_TO_MUSIC) {
 		target_dir(path, target, NULL, dstdir, sizeof dstdir);
 		/* "Import/Music/..." -> everything inside goes into Music;
@@ -686,7 +784,52 @@ int import_move(const char *path, int target, char *err, size_t errn) {
 		return bad ? -1 : 0;
 	}
 	sl_free(&group);
-	return move_one(path, dstdir, renamable(target), err, errn);
+#ifdef ZAPPO_KNULLI
+	/* a zipped disc for a console that doesn't play zips (PSP, PlayStation):
+	 * unpacked into the console's folder with the handheld's own unzip; the
+	 * zip itself is kept aside in import/.unpacked-zips (a dot-name: the sorter
+	 * and the lists leave it alone), never thrown away */
+	if (str_ieq(path_ext(path), "zip") && !data_sys_takes(target, "x.zip")) {
+		long long need = size_of(path) * 2 + (64 << 20);
+		struct statvfs vs;
+		if (statvfs(dstdir, &vs) == 0 && (long long)vs.f_bavail * (long long)vs.f_frsize < need) {
+			snfmt(err, errn, "Not enough room on the card to unpack it");
+			return -1;
+		}
+		char cmd[2400], aside[1024], imp[512];
+		mkdir_p(dstdir);
+		snfmt(cmd, sizeof cmd, "unzip -n -j -q '%s' -d '%s' >/dev/null 2>&1", path, dstdir);
+		if (strchr(path, '\'') || strchr(dstdir, '\'') || system(cmd) != 0) { snfmt(err, errn, "Couldn't unpack %s", path_base(path)); return -1; }
+		import_dir(imp, sizeof imp);
+		snfmt(aside, sizeof aside, "%s/.unpacked-zips", imp);
+		mkdir_p(aside);
+		snfmt(aside, sizeof aside, "%s/.unpacked-zips/%s", imp, path_base(path));
+		if (rename(path, aside) != 0) { unlink(path); }
+		return 0;
+	}
+#endif
+	int r = move_one(path, dstdir, renamable(target), err, errn);
+#ifdef ZAPPO_KNULLI
+	if (r == 0) {
+		/* its picture comes along: roms/<old>/images/<game>-image.png and friends */
+		char srcdir[600], stem[256];
+		path_dir(path, srcdir, sizeof srcdir);
+		path_stem(path, stem, sizeof stem);
+		static const char *SUF[] = {"-image", "-thumb", "-boxart", "-marquee", "-video", ""};
+		static const char *EXT[] = {"png", "jpg", "mp4"};
+		for (int i = 0; i < ARRAY_LEN(SUF); i++)
+			for (int x = 0; x < ARRAY_LEN(EXT); x++) {
+				char a[1024], b[1024];
+				snfmt(a, sizeof a, "%s/images/%s%s.%s", srcdir, stem, SUF[i], EXT[x]);
+				if (!file_exists(a)) continue;
+				snfmt(b, sizeof b, "%s/images", dstdir);
+				mkdir_p(b);
+				snfmt(b, sizeof b, "%s/images/%s%s.%s", dstdir, stem, SUF[i], EXT[x]);
+				if (!file_exists(b)) rename(a, b);
+			}
+	}
+#endif
+	return r;
 }
 
 /* ------------------------------------------------------------------- run */
@@ -824,6 +967,7 @@ static void sort_dir(const char *dir, ImportResult *r) {
 		if (import_move(p, t, err, sizeof err) != 0) { r->failed++; r->left++; continue; }
 		if (t == IMPORT_TO_BIOS) r->bios++;
 		else if (t == IMPORT_TO_MUSIC) r->music++;
+		else if (t == IMPORT_TO_HALO) { r->moved++; if (!r->first_sys[0]) sncpy(r->first_sys, "Halo (ports/halo)", sizeof r->first_sys); }
 		else {
 			r->moved++;
 			if (!r->first_sys[0]) sncpy(r->first_sys, data_sys_name(t), sizeof r->first_sys);

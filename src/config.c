@@ -104,6 +104,7 @@ void settings_load(void) {
 	s->lights_colour = CLAMP(jint(root, "lights_colour", 0), 0, 8);
 	s->lights_effect = CLAMP(jint(root, "lights_effect", 0), 0, 3);
 	s->motion = CLAMP(jint(root, "motion", 2), 0, 2);
+	s->motion_by = CLAMP(jint(root, "motion_by", 0), 0, 1);
 #ifdef ZAPPO_TABLET
 	s->full_power = CLAMP(jint(root, "full_power", 0), 0, 1);
 #endif
@@ -178,6 +179,7 @@ void settings_save(void) {
 	jset_num(r, "lights_colour", s->lights_colour);
 	jset_num(r, "lights_effect", s->lights_effect);
 	jset_num(r, "motion", s->motion);
+	jset_num(r, "motion_by", s->motion_by);
 #ifdef ZAPPO_TABLET
 	jset_num(r, "full_power", s->full_power);
 #endif

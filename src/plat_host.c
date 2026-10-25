@@ -144,6 +144,7 @@ void plat_cpu_set(const char *governor, int max_khz, int min_khz) {
 	if (max_khz > 0) cpu_max = max_khz;
 }
 int plat_cpu_cur(void) { return cpu_max; }
+int plat_cpu_max(void) { return cpu_max; }
 
 void plat_describe(char *out, size_t n) {
 	snfmt(out, n, "CPU: %d MHz, governor %s\nMemory: 180 MB free of 233 MB\nScreen: 640x480, 32-bit, host test\nInputs: host script",

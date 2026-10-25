@@ -47,9 +47,10 @@ def run(req):
 # From Knulli's es_input.cfg for "Anbernic RG40XX-H Controller" (GUID
 # 19000000010000000100000000010000 = bus 0x19, vendor 1, product 1, version
 # 0x100): buttons by evdev code, d-pad on hat 0, sticks on ABS_Z/RX (left) and
-# ABS_RY/RZ (right).  SDL numbers buttons from code 288 up and the handheld's
-# "a" is SDL button 3, so three lower buttons exist (288-290 here; what they are
-# on the handheld is on the arrival checklist).
+# ABS_RY/RZ (right).  The real handheld (22 Oct 2026) reports 14 buttons and no
+# codes below 304, so es_input.cfg's SDL numbers don't line up with its codes:
+# Zappo X matches buttons by code.  The 14th code here (317) stands in for the
+# one es_input.cfg doesn't name.
 BUTTONS = {"a": 304, "b": 305, "y": 306, "x": 307, "l1": 308, "r1": 309, "select": 310,
            "start": 311, "menu": 312, "l3": 313, "l2": 314, "r2": 315, "r3": 316}
 HAT = {"up": (17, -1), "down": (17, 1), "left": (16, -1), "right": (16, 1)}
@@ -64,7 +65,7 @@ def make_pad():
     from evdev import UInput, AbsInfo, ecodes as e
     stick = AbsInfo(value=0, min=-2048, max=2047, fuzz=16, flat=64, resolution=0)
     hat = AbsInfo(value=0, min=-1, max=1, fuzz=0, flat=0, resolution=0)
-    caps = {e.EV_KEY: [288, 289, 290] + sorted(BUTTONS.values()),
+    caps = {e.EV_KEY: sorted(BUTTONS.values()) + [317],
             e.EV_ABS: [(e.ABS_Z, stick), (e.ABS_RX, stick), (e.ABS_RY, stick), (e.ABS_RZ, stick),
                        (e.ABS_HAT0X, hat), (e.ABS_HAT0Y, hat)]}
     pad = UInput(caps, name="Anbernic RG40XX-H Controller", vendor=1, product=1, version=0x100, bustype=0x19)

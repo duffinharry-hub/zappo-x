@@ -48,7 +48,11 @@ int app_start(void) {
 		if (music_load_state(st)) LOG("music: picked up where it left off");
 	}
 	/* Browsing needs little CPU; games set their own speed in command.sh. */
+#ifdef ZAPPO_KNULLI
+	plat_cpu_set(NULL, g_set.menu_cpu > 0 ? g_set.menu_cpu : plat_cpu_max(), 0);
+#else
 	plat_cpu_set(NULL, g_set.menu_cpu, 0);
+#endif
 
 	data_init();
 	ImportResult imp;

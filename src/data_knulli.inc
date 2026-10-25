@@ -35,7 +35,7 @@ static const struct { const char *dir, *code; } KNULLI_CODES[] = {
 	{"amiga500", "AMIGA"}, {"amigacd32", "AMIGACD"}, {"amstradcpc", "CPC"}, {"zxspectrum", "ZXS"},
 	{"zx81", "ZXEIGHTYONE"}, {"msx1", "MSX"}, {"x1", "XONE"}, {"x68000", "X68000"},
 	{"pc88", "PCEIGHTYEIGHT"}, {"pc98", "PCNINETYEIGHT"}, {"dos", "DOS"}, {"scummvm", "SCUMMVM"},
-	{"pico8", "PICO"}, {"tic80", "TIC"}, {"prboom", "DOOM"}, {"tyrquake", "QUAKE"},
+	{"pico8", "PICO"}, {"pico", "SEGAPICO"}, {"tic80", "TIC"}, {"prboom", "DOOM"}, {"tyrquake", "QUAKE"},
 	{"ports", "PORTS"},
 };
 

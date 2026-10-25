@@ -22,7 +22,7 @@
 static pid_t job_pid = -1;
 static char job_what[64], last_err[160];
 static int job_kind;
-enum { J_NONE, J_REFRESH, J_POWER, J_CONNECT, J_FORGET, J_BT_REFRESH, J_BT, J_RA };
+enum { J_NONE, J_REFRESH, J_POWER, J_CONNECT, J_FORGET, J_BT_REFRESH, J_BT, J_RA, J_UPD };
 static RaResult ra_res;
 static int ra_new;
 static WifiNet nets[MAXNET];
@@ -36,15 +36,22 @@ static BtDev bts[MAXBT];
 static int nbts;
 static BtStatus bst = {1, 0, 0, 0};
 static int bt_queued = -1;
+static char upd_status[160];   /* the last internet update check, one line */
 static uint64_t next_followup;
 
 /* the status and the networks, as lines the parser below reads:
  *   S|<wifi.enabled>|<ip>
  *   N|<connman flags>|<strength>|<id>|<name> */
-static const char *REFRESH_SH =
+/* the Wi-Fi interface, whatever the kernel called it (wlan0 nearly always) */
+#define WIFACE_SH "W=$(ip -o link 2>/dev/null | sed -n 's/^[0-9]*: \\(wl[^:@]*\\).*/\\1/p' | head -n 1); W=${W:-wlan0}\n"
+
+static const char *REFRESH_SH = WIFACE_SH
+	"hy=0; sed -n 's/^system.services=//p' /userdata/system/batocera.conf | tail -n 1 | grep -qw wireless_hybrid_fix && hy=1\n"
+	"[ -f /var/run/wpa_supplicant.pid ] && kill -0 $(cat /var/run/wpa_supplicant.pid) 2>/dev/null && hy=$((hy + 2))\n"
+	"echo \"H|$hy\"\n"
 	"[ \"$1\" = 1 ] && connmanctl scan wifi >/dev/null 2>&1\n"
 	"en=$(sed -n 's/^wifi.enabled=//p' /userdata/system/batocera.conf | tail -n 1)\n"
-	"ip=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \\([0-9.]*\\).*/\\1/p' | head -n 1)\n"
+	"ip=$(ip -4 addr show \"$W\" 2>/dev/null | sed -n 's/.*inet \\([0-9.]*\\).*/\\1/p' | grep -v '^169\\.254' | head -n 1)\n"
 	"echo \"S|$en|$ip\"\n"
 	"connmanctl services 2>/dev/null | while IFS= read -r line; do\n"
 	"  id=${line##* }\n"
@@ -91,7 +98,9 @@ static void parse_refresh(void) {
 			*bar = 0;
 			p = bar + 1;
 		}
-		if (!strcmp(f[0], "S") && nf >= 3) {
+		if (!strcmp(f[0], "H") && nf >= 2) {
+			st.hybrid = atoi(f[1]);
+		} else if (!strcmp(f[0], "S") && nf >= 3) {
 			st.enabled = atoi(f[1]) == 1;
 			sncpy(st.ip, f[2], sizeof st.ip);
 		} else if (!strcmp(f[0], "N") && nf == 5 && nnets < MAXNET) {
@@ -160,6 +169,20 @@ int net_poll(void) {
 		ra_new = 1;
 		return 1;
 	}
+	if (kind == J_UPD) {
+		char *txt = file_read_all(OUT, NULL);
+		char *line = txt ? txt : "";
+		/* the script's last line: UPTODATE|v, READY|v or ERR|why */
+		char *last = line;
+		for (char *q = line; *q; q++) if (*q == '\n' && q[1]) last = q + 1;
+		last[strcspn(last, "\r\n")] = 0;
+		if (!strncmp(last, "UPTODATE|", 9)) snfmt(upd_status, sizeof upd_status, "Up to date: %s is the newest release", last + 9);
+		else if (!strncmp(last, "READY|", 6)) snfmt(upd_status, sizeof upd_status, "Zappo X %s downloaded: install it below", last + 6);
+		else if (!strncmp(last, "ERR|", 4)) snfmt(upd_status, sizeof upd_status, "%s", last + 4);
+		else snfmt(upd_status, sizeof upd_status, "The check didn't finish");
+		free(txt);
+		return 1;
+	}
 	if (kind == J_BT) {
 		if (!ok) {
 			char *txt = file_read_all(OUT, NULL);
@@ -206,12 +229,13 @@ void net_wifi_power(int on) {
 }
 
 /* the three networks Knulli remembers: wifi.ssid/key, wifi2.*, wifi3.* */
-#define SLOTS_SH \
+#define SLOTS_SH WIFACE_SH \
 	"C=/userdata/system/batocera.conf\n" \
 	"get() { sed -n \"s/^$1=//p\" $C | tail -n 1; }\n" \
 	"pre() { [ \"$1\" = 1 ] && echo wifi || echo wifi$1; }\n" \
 	"up() { connmanctl services \"$1\" 2>/dev/null | grep -qE 'State = (ready|online)' && \\\n" \
-	"  ip -4 addr show wlan0 | grep 'inet ' | grep -qv 'inet 169\\.254'; }\n"
+	"  ip -4 addr show \"$W\" | grep 'inet ' | grep -qv 'inet 169\\.254'; }\n" \
+	"diag() { { echo \"--- $(date) iface=$W\"; connmanctl state; connmanctl technologies | grep -A4 -i wifi; ip -4 addr; ls /var/lib/connman; } >> /tmp/zappo-wifi.log 2>&1; }\n"
 
 /* leave the network the handheld is on (connman keeps one at a time) */
 #define LEAVE_SH \
@@ -222,13 +246,19 @@ void net_wifi_power(int on) {
 
 void net_wifi_connect(const WifiNet *n, const char *key) {
 	char what[96];
+	if (st.hybrid) {
+		snfmt(last_err, sizeof last_err, "Knulli's \"wireless hybrid fix\" is on: switch it off first (below)");
+		return;
+	}
 	snfmt(what, sizeof what, "Connecting to %s", n->ssid);
 	if (n->saved && (!key || !*key)) {	/* its password is already known */
 		start_job(J_CONNECT, what, SLOTS_SH LEAVE_SH
 		          "seen \"$1\"; leave \"$1\"\n"
-		          "connmanctl connect \"$1\" >/dev/null 2>&1\n"
+		          "connmanctl connect \"$1\" > /tmp/zappo-wifi.log 2>&1\n"
 		          "for i in $(seq 1 20); do up \"$1\" && exit 0; sleep 1; done\n"
-		          "echo 'No connection'; exit 1\n", n->id, NULL);
+		          "connmanctl services \"$1\" >> /tmp/zappo-wifi.log 2>&1; diag; cp /tmp/zappo-wifi.log /userdata/system/zappo-x/wifi.log 2>/dev/null\n"
+		          "why=$(grep -i 'error\\|fail\\|invalid\\|timeout' /tmp/zappo-wifi.log | head -n 1 | sed 's/^Error //; s/^.*\\.\\([a-z-]*\\): */\\1: /')\n"
+		          "echo \"No connection${why:+ ($why)}. X on the network: forget it, then join it again with the password.\"; exit 1\n", n->id, NULL);
 		return;
 	}
 	/* $1 ssid, $2 key, $3 connman id */
@@ -244,8 +274,9 @@ void net_wifi_connect(const WifiNet *n, const char *key) {
 	          "batocera-settings-set $P.ssid \"$1\"; batocera-settings-set $P.key \"$2\"\n"
 	          "/etc/init.d/S20connman reload >/dev/null 2>&1; sleep 2\n"
 	          "seen \"$3\"; leave \"$3\"\n"
-	          "connmanctl connect \"$3\" >/dev/null 2>&1\n"
+	          "connmanctl connect \"$3\" > /tmp/zappo-wifi.log 2>&1\n"
 	          "for i in $(seq 1 25); do up \"$3\" && exit 0; sleep 1; done\n"
+	          "connmanctl services \"$3\" >> /tmp/zappo-wifi.log 2>&1; diag; cp /tmp/zappo-wifi.log /userdata/system/zappo-x/wifi.log 2>/dev/null\n"
 	          "# no luck: put back what was there\n"
 	          "batocera-settings-set $P.ssid \"$olds\"; batocera-settings-set $P.key \"$oldk\"\n"
 	          "connmanctl config \"$3\" --remove >/dev/null 2>&1\n"
@@ -275,6 +306,20 @@ void net_wifi_forget(const WifiNet *n) {
 	      "/etc/init.d/S20connman reload >/dev/null 2>&1\n", n->id, n->id);
 	start_job(J_FORGET, what, full, n->ssid, NULL);
 	free(full);
+}
+
+/* Knulli's wireless_hybrid_fix off: the service's own stop puts connman back
+ * (with the saved networks), and it's taken out of system.services so it
+ * stays off at the next boot. */
+void net_wifi_unhybrid(void) {
+	start_job(J_CONNECT, "Putting Knulli's network manager back",
+	          "S=/usr/share/batocera/services/wireless_hybrid_fix\n"
+	          "batocera-services disable wireless_hybrid_fix >/dev/null 2>&1\n"
+	          "[ -x $S ] && $S stop >/dev/null 2>&1\n"
+	          "pgrep connmand >/dev/null || /etc/init.d/S20connman start >/dev/null 2>&1\n"
+	          "for i in $(seq 1 15); do connmanctl state 2>/dev/null | grep -q State && break; sleep 1; done\n"
+	          "exit 0\n", NULL, NULL);
+	st.hybrid = 0;
 }
 
 void net_wifi_status(WifiStatus *out) { *out = st; }
@@ -413,6 +458,16 @@ static const char *RA_SH =
 	"    print(\"E|%s\" % (j.get(\"Error\") or \"That did not work\")); sys.exit(1)\n"
 	"'\n";
 
+void net_update_check(void) {
+	if (job_pid > 0) return;
+	char script[700];
+	snfmt(script, sizeof script, "python3 '%s/zappo-update-check.py' \"$1\" /userdata/system/zappo-x-update 2>&1", g_paths.clove);
+	upd_status[0] = 0;
+	start_job(J_UPD, "Looking for a newer Zappo X on GitHub", script, CLOVE_VERSION, NULL);
+}
+
+const char *net_update_status(void) { return upd_status; }
+
 void net_ra_signin(const char *user, const char *pass) {
 	ra_new = 0;
 	start_job(J_RA, "Signing in", RA_SH, user, pass);
@@ -447,6 +502,9 @@ void net_wifi_refresh(int scan) { (void)scan; }
 void net_wifi_power(int on) { (void)on; }
 void net_wifi_connect(const WifiNet *n, const char *key) { (void)n; (void)key; }
 void net_wifi_forget(const WifiNet *n) { (void)n; }
+void net_wifi_unhybrid(void) {}
+void net_update_check(void) {}
+const char *net_update_status(void) { return ""; }
 void net_wifi_status(WifiStatus *out) { memset(out, 0, sizeof *out); }
 void net_bt_refresh(int scan) { (void)scan; }
 void net_bt_power(int on) { (void)on; }

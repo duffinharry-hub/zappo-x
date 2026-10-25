@@ -7,6 +7,7 @@
 
 #define IMPORT_TO_BIOS (-2)
 #define IMPORT_TO_MUSIC (-3)
+#define IMPORT_TO_HALO (-4)   /* an Xbox Halo disc image: roms/ports/halo, for the Halo CE port (Knulli) */
 
 typedef struct {
 	int moved;    /* games moved into a console folder */

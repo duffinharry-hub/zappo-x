@@ -70,10 +70,11 @@ typedef struct {
 	int tab_visible[TAB_COUNT];
 	int start_tab;
 	int remember;     /* return to the last game/screen */
-	int lights;        /* the stick lights (Knulli): LIGHTS_FOLLOW, LIGHTS_ONE, LIGHTS_KNULLI, LIGHTS_OFF */
+	int lights;        /* the stick lights (Knulli): LIGHTS_FOLLOW (Zappo section colours) or LIGHTS_KNULLI (Knulli's colour); ONE and OFF are 0.1 values, turned into Knulli settings */
 	int lights_colour; /* LIGHTS_ONE: which of the Zappo colours */
 	int lights_effect; /* 0 steady, 1 slow breathing, 2 breathing, 3 fast breathing */
 	int motion;        /* moving backgrounds (Knulli): 2 on, 1 fewer, 0 off */
+	int motion_by;     /* 0: the section's element; 1: the theme's (a Zappo theme), else the section's */
 	int full_power;    /* tablet: 60 frames a second, drawn by its graphics chip (0 = balanced) */
 } Settings;
 

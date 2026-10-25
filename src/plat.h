@@ -53,6 +53,7 @@ typedef struct {
 	char fonts[256];/* the menu fonts, when not GarlicOS's <cfw>/font */
 	int sd_present;
 	int mmc_is_tf2; /* TF2 boot: the TF2 card is mounted at /mnt/mmc */
+	int sd_stock;   /* Knulli: the TF2 card is a stock Anbernic card (games in sd/Roms/<NAME>) */
 } Paths;
 extern Paths g_paths;
 
@@ -81,6 +82,7 @@ void plat_screen_dim(int dim); /* very low backlight (sleep clock) / back to nor
 
 int plat_cpu_freqs(int *out, int max); /* available kHz values, ascending */
 void plat_cpu_set(const char *governor, int max_khz, int min_khz);
+int plat_cpu_max(void); /* the processor's top speed (kHz) */
 int plat_cpu_cur(void);
 
 void plat_describe(char *out, size_t n); /* diagnostics for the About page */

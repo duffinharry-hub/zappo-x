@@ -16,8 +16,9 @@ fi
 mkdir -p "$D" /userdata/system/services /userdata/music /userdata/import /userdata/videos /userdata/roms/ports/images
 cp -a "$HERE/zappo-x/." "$D/"
 if [ -n "$OLD" ]; then
-	for f in settings.json recents.json favorites.lpl input.json systems.json play-counts.tsv music-state.tsv themes; do
-		[ -e "$OLD/$f" ] && cp -a "$OLD/$f" "$D/" 2>/dev/null || true
+	for f in settings.json recents.json favorites.lpl input.json systems.json play-counts.tsv music-state.tsv music-cache.tsv music-list.tsv battery-log.tsv runs.log wifi.log watch-later themes; do
+		if [ -d "$OLD/$f" ]; then mkdir -p "$D/$f" && cp -a "$OLD/$f/." "$D/$f/" 2>/dev/null || true
+		elif [ -e "$OLD/$f" ]; then cp -a "$OLD/$f" "$D/" 2>/dev/null || true; fi
 	done
 fi
 cp "$HERE/zappox" /userdata/system/services/zappox

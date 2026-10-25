@@ -18,7 +18,7 @@ arm: build/clove
 
 build/clove-host: $(COMMON) src/plat_host.c src/*.h src/*.inc
 	@mkdir -p build
-	cc $(CFLAGS_COMMON) -O1 -g -fsanitize=address,undefined -o $@ $(COMMON) src/plat_host.c -lm -pthread
+	cc $(CFLAGS_COMMON) -O1 -g -fsanitize=address,undefined -DZAPPO_ZLIB -o $@ $(COMMON) src/plat_host.c -lz -lm -pthread
 
 build/clove: $(COMMON) src/plat_dev.c src/plat_evdev.inc src/*.h src/*.inc
 	@mkdir -p build
@@ -56,7 +56,7 @@ knulli: build/zappo-x
 
 build/zappo-x: $(COMMON) src/plat_knulli.c src/plat_evdev.inc src/data_knulli.inc src/*.h src/*.inc
 	@mkdir -p build
-	$(KNULLI_CC) $(CFLAGS_COMMON) -O2 -g -mcpu=cortex-a53 -DZAPPO_KNULLI -o $@.debug $(COMMON) src/plat_knulli.c -lSDL2 -lm -lpthread
+	$(KNULLI_CC) $(CFLAGS_COMMON) -O2 -g -mcpu=cortex-a53 -DZAPPO_KNULLI -DZAPPO_ZLIB -o $@.debug $(COMMON) src/plat_knulli.c -lSDL2 -lz -lm -lpthread
 	$(KNULLI_STRIP) -o $@ $@.debug
 
 # the moving backgrounds, drawn on the PC to look at: frames as PPM on stdout

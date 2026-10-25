@@ -104,7 +104,7 @@ static int cache_known(const char *path, int w, int h, int mode) {
 /* ------------------------------------------------------------------ views */
 
 typedef enum { V_HOME, V_LIST, V_MENU, V_INPUT, V_SEARCH, V_SHOTS } VType;
-enum { LK_SYSTEM, LK_RECENT, LK_FAV, LK_VIDEO };
+enum { LK_SYSTEM, LK_RECENT, LK_FAV, LK_VIDEO, LK_NEW };
 enum { M_ROOT, M_APPEAR, M_TABS, M_SYSTEMS, M_SYSTEM, M_PERF, M_CONTROLS, M_POWER, M_ABOUT, M_PICK, M_CLOCK, M_SENS, M_MUSIC, M_HOME, M_GAMES, M_WIFI, M_BT, M_SEND, M_LIGHTS, M_ACH };
 
 typedef struct {
@@ -135,7 +135,7 @@ static int vis[256], nvis;
 enum { OV_NONE, OV_GAME, OV_POWER, OV_QUICK, OV_CONFIRM };
 enum { OA_FAV = 1, OA_UNRECENT, OA_SYSSET, OA_CANCEL, OA_SLEEP, OA_OFF, OA_REBOOT, OA_SETTINGS, OA_YES, OA_MOVE,
        OA_STARTOVER, OA_SEARCH, OA_SHOTS, OA_VWATCH, OA_VHELP, OA_VSORT, OA_SURPRISE, OA_VCONT, OA_NOWPLAY, OA_MPAUSE,
-       OA_BT_CONNECT, OA_BT_DISCONNECT, OA_BT_FORGET };
+       OA_BT_CONNECT, OA_BT_DISCONNECT, OA_BT_FORGET, OA_NEW };
 typedef struct {
 	int kind;
 	char title[240];
@@ -370,11 +370,30 @@ static int pend_sys = -1, pend_kind;
 
 /* the Import item a console is being picked for */
 static char pick_path[1024];
-static int pick_vis[300], pick_n;
+static int pick_vis[300], pick_n, pick_from = -1;	/* (pick_from: the console it's leaving, -1 from Import) */
 
 static View *top(void) { return &stack[depth - 1]; }
 
 static void toast(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void ui_render(void);
+/* a toast drawn right now, for before something that takes a while (unpacking a disc) */
+static void show_now(const char *msg) {
+	toast("%s", msg);
+	dirty = 1;
+	ui_render();
+	plat_present();
+}
+
+/* the move itself: a zipped disc is unpacked, which takes a while, so say so first */
+static int move_with_notice(const char *path, int target, char *err, size_t errn) {
+	struct stat st;
+	if (str_ieq(path_ext(path), "zip") && stat(path, &st) == 0 && st.st_size > (50 << 20)) {
+		char m[200];
+		snfmt(m, sizeof m, "Unpacking %s - a big disc takes a minute or two", path_base(path));
+		show_now(m);
+	}
+	return import_move(path, target, err, errn);
+}
 static void toast(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
@@ -458,6 +477,7 @@ static void clamp_cursor(Cursor *c, int n, int rows, int cols) {
 static void load_list(View *v) {
 	if (v->kind == LK_RECENT) data_list_recents(&v->items);
 	else if (v->kind == LK_FAV) data_list_favorites(&v->items);
+	else if (v->kind == LK_NEW) data_list_new(&v->items);
 	else data_list_system(v->sys, v->dir, &v->items);
 }
 
@@ -629,6 +649,14 @@ static uint32_t layer_buf[SCREEN_W * SCREEN_H];
 /* the element for the section on screen */
 static int section_element(void) {
 	static const int EL[TAB_COUNT] = {EL_ELECTRIC, EL_CRYSTAL, EL_FIRE, EL_WATER, EL_ICE, EL_DUST, EL_LEAF};
+	if (g_set.motion_by == 1) {
+		/* the theme's element: a "Zappo <Element>" theme */
+		static const struct { const char *name; int el; } T[] = {
+			{"Zappo Electric", EL_ELECTRIC}, {"Zappo Crystal", EL_CRYSTAL}, {"Zappo Fire", EL_FIRE},
+			{"Zappo Water", EL_WATER}, {"Zappo Ice", EL_ICE}, {"Zappo Leaf", EL_LEAF}};
+		for (int i = 0; i < ARRAY_LEN(T); i++)
+			if (!strcmp(g_theme.name, T[i].name)) return T[i].el;
+	}
 	return tab >= 0 && tab < TAB_COUNT ? EL[tab] : EL_DUST;
 }
 #endif
@@ -1230,6 +1258,7 @@ static void draw_list_shelf(View *v) {
 	text_draw_fit(F_TITLE, PAD, ty, SCREEN_W - PAD * 2, e->name, 0xFFFFFFFF, 1);
 	char sub[160];
 	if (e->is_dir) snfmt(sub, sizeof sub, "Folder  \xC2\xB7  %d / %d", v->cur.sel + 1, n);
+	else if (e->misplaced) snfmt(sub, sizeof sub, "In %s's folder, but not one of its games  \xC2\xB7  %d / %d", e->sys >= 0 ? data_sys_name(e->sys) : "", v->cur.sel + 1, n);
 	else snfmt(sub, sizeof sub, "%s  \xC2\xB7  %d / %d", e->sys >= 0 ? data_sys_name(e->sys) : "", v->cur.sel + 1, n);
 	text_draw_fit(F_SMALL, PAD, ty + font_height(F_TITLE) + 1, SCREEN_W - PAD * 2, sub, col_alpha(g_theme.text, 190), 1);
 	time_t when;
@@ -1246,6 +1275,7 @@ static void draw_list(View *v) {
 	if (n == 0) {
 		if (v->kind == LK_RECENT) draw_empty_z("electric", "Nothing played yet", "Games you start show up here.");
 		else if (v->kind == LK_FAV) draw_empty_z("crystal", "No favorites yet", "Press Y on any game or film to add it here.");
+		else if (v->kind == LK_NEW) draw_empty_z("leaf", "Nothing new", "Games added in the last month show up here, and anything that landed in the wrong console's folder.");
 		else if (g_sys[v->sys].is_import) {
 			draw_empty_z("leaf", "Everything is sorted", "Copy games into the Import folder on your card and Zappo puts them in the right console.");
 		} else {
@@ -1310,7 +1340,7 @@ static void draw_list(View *v) {
 	gfx_clip(0, CONTENT_Y, SCREEN_W, CONTENT_H);
 	float hy = CONTENT_Y + (v->cur.asel - v->cur.atop) * rh;
 	draw_sel(lx, (int)hy + 3, lw, rh - 6, MIN(r, (rh - 6) / 2));
-	int show_sys = v->kind == LK_RECENT || v->kind == LK_FAV;
+	int show_sys = v->kind == LK_RECENT || v->kind == LK_FAV || v->kind == LK_NEW;
 	for (int i = v->cur.top - 1; i <= v->cur.top + rows && i < n; i++) {
 		if (i < 0) continue;
 		Entry *e = &v->items.v[i];
@@ -1328,7 +1358,9 @@ static void draw_list(View *v) {
 			tw -= 24;
 		}
 		if (show_sys && e->sys >= 0) {
+			char mis[80];
 			const char *sn = g_sys[e->sys].short_name;
+			if (e->misplaced) { snfmt(mis, sizeof mis, "in %s's folder - not its kind", sn); sn = mis; }
 			int sw = text_width(F_SMALL, sn);
 			text_draw(F_SMALL, tx + tw - sw, y + rh / 2 - font_height(F_SMALL) / 2, sn, sel ? sel_dim() : g_theme.text_dim);
 			tw -= sw + 12;
@@ -1513,7 +1545,48 @@ static __attribute__((unused)) void cpu_label(int sys, int v, char *out, size_t 
 }
 
 #ifdef ZAPPO_KNULLI
-static const char *LIGHT_MODES[] = {"Follow the section", "One colour", "Knulli's setting", "Off"};
+/* Settings > Lights: Knulli's own light settings (shared with Knulli's menu,
+ * kept in batocera.conf and applied by Knulli's light daemon), plus Zappo's
+ * section colours as one of the colour choices. */
+static const char *LED_EFFECTS[] = {"Off", "Steady", "Breathing, fast", "Breathing, medium", "Breathing, slow",
+                                    "Rainbow", "Rainbow swirl"};
+static int led_mode(void) { return CLAMP(plat_conf_int("led.mode", 1), 0, 6); }
+static void led_rgb(int c[3]) {
+	char v[32];
+	c[0] = c[1] = c[2] = 255;
+	if (plat_conf_get("led.colour", v, sizeof v)) sscanf(v, "%d %d %d", &c[0], &c[1], &c[2]);
+	for (int i = 0; i < 3; i++) c[i] = CLAMP(c[i], 0, 255);
+}
+static void led_set_rgb(const int c[3]) {
+	char v[32];
+	snfmt(v, sizeof v, "%d %d %d", c[0], c[1], c[2]);
+	plat_conf_set("led.colour", v);
+}
+/* the colour choice: 0 = Zappo's section colours, 1..9 = Zappo's colours, 10 = your own */
+static int led_colour_choice(void) {
+	if (g_set.lights == LIGHTS_FOLLOW) return 0;
+	int c[3];
+	led_rgb(c);
+	for (int i = 0; i < LIGHT_COLOURS; i++) {
+		uint32_t x = plat_light_colours[i].rgb;
+		if ((int)(x >> 16 & 255) == c[0] && (int)(x >> 8 & 255) == c[1] && (int)(x & 255) == c[2]) return i + 1;
+	}
+	return LIGHT_COLOURS + 1;
+}
+static const char *led_colour_name(int ch) {
+	if (ch == 0) return "Zappo: each section's own";
+	if (ch <= LIGHT_COLOURS) return plat_light_colours[ch - 1].name;
+	return "Your own mix";
+}
+static const char *led_summary(void) {
+	static char out[64];
+	int m = led_mode();
+	if (m == 0) return "Off";
+	if (m >= 5) return LED_EFFECTS[m];
+	int ch = led_colour_choice();
+	snfmt(out, sizeof out, "%s", ch == 0 ? "Section colours" : led_colour_name(ch));
+	return out;
+}
 static int ra_checking;       /* a RetroAchievements sign-in is being checked */
 static int ra_score = -1;     /* points, once signed in this time */
 static char ra_user_typed[64], ra_pass_typed[64];
@@ -1602,6 +1675,7 @@ static const char *menu_title(int menu, int arg) {
 	return "";
 }
 
+static int update_waiting(char *ver, size_t n);
 static void menu_build(int menu, int arg) {
 	nmi = 0;
 	char b[96];
@@ -1628,8 +1702,8 @@ static void menu_build(int menu, int arg) {
 #endif
 #ifdef ZAPPO_KNULLI
 		if (plat_lights_available())
-			add(M_LIGHTS, MK_SUB, "Lights", LIGHT_MODES[CLAMP(g_set.lights, 0, LIGHTS_COUNT - 1)],
-			    "The lights around the sticks: the colour of the section you're in, one colour, Knulli's own setting, or off.");
+			add(M_LIGHTS, MK_SUB, "Lights", led_summary(),
+			    "The lights around the sticks: Knulli's light settings, plus Zappo's section colours.");
 		{
 			WifiStatus ws;
 			net_wifi_status(&ws);
@@ -1649,7 +1723,11 @@ static void menu_build(int menu, int arg) {
 	case M_APPEAR: {
 		static const char *HL[] = {"Carousel", "Grid", "List", "Shelf"};
 		static const char *GL[] = {"List with art", "List", "Grid", "Shelf"};
+#ifdef ZAPPO_KNULLI
+		add(1, MK_CHOICE, "Theme", g_theme.name, "Themes live in system/zappo-x/themes on the SHARE card: add your own there.");
+#else
 		add(1, MK_CHOICE, "Theme", g_theme.name, "Themes live in CFW/clove/themes. \"GarlicOS skin\" uses your current GarlicOS skin.");
+#endif
 		add(16, MK_CHOICE, "Style", glass() ? "Glass" : "Classic",
 		    "Glass: your lock screen picture (or the theme's wallpaper), softly blurred, behind every screen, with see-through panels and a tab bar of icons. "
 		    "The Zappo element themes keep their own picture, sharp.");
@@ -1663,8 +1741,10 @@ static void menu_build(int menu, int arg) {
 		    "How heavy the writing is. Firm and Bold draw the theme's font thicker, so it reads better on the small screen.");
 #ifdef ZAPPO_APPS
 		add(22, MK_CHOICE, "Moving backgrounds", (const char *[]){"Off", "Fewer", "On"}[CLAMP(g_set.motion, 0, 2)],
-		    "Each section's Zappo element drifts behind the menus: Recent sparks, Favorites crystals, Consoles embers, "
-		    "Music drops, Videos snow, Settings leaves. Fewer: half as many.");
+		    "A Zappo element drifts behind the menus. Fewer: half as many.");
+		if (g_set.motion) add(23, MK_CHOICE, "Which element", g_set.motion_by ? "The theme's" : "The section's",
+		    g_set.motion_by ? "The theme's own element everywhere: Zappo Fire embers, Zappo Leaf leaves... (other themes: the section's)."
+		                    : "Each section's: Recent sparks, Favorites crystals, Consoles embers, Music drops, Videos snow, Settings leaves.");
 #endif
 		add(6, MK_CHOICE, "Animations", onoff(g_set.animations), "Smooth scrolling and transitions.");
 		add(9, MK_CHOICE, "Button guide", g_set.show_guide ? "Shown" : "Hidden", "The row of buttons along the bottom of the screen.");
@@ -1701,23 +1781,41 @@ static void menu_build(int menu, int arg) {
 		break;
 #ifdef ZAPPO_KNULLI
 	case M_LIGHTS: {
-		static const char *EF[] = {"Steady", "Slow breathing", "Breathing", "Fast breathing"};
-		add(1, MK_CHOICE, "Lights", LIGHT_MODES[CLAMP(g_set.lights, 0, LIGHTS_COUNT - 1)],
-		    g_set.lights == LIGHTS_FOLLOW ? "Each section in its Zappo's colour: Recent electric yellow, Favorites crystal purple, Consoles fire orange, "
-		                                    "Music water blue, Videos ice blue, Settings leaf green."
-		    : g_set.lights == LIGHTS_KNULLI ? "The colour and effect chosen in Knulli's own menu."
-		    : g_set.lights == LIGHTS_ONE ? "The same colour everywhere." : "No lights.");
-		if (g_set.lights == LIGHTS_ONE)
-			add(2, MK_CHOICE, "Colour", plat_light_colours[CLAMP(g_set.lights_colour, 0, LIGHT_COLOURS - 1)].name, NULL);
-		if (g_set.lights == LIGHTS_FOLLOW || g_set.lights == LIGHTS_ONE)
-			add(3, MK_CHOICE, "Effect", EF[CLAMP(g_set.lights_effect, 0, 3)], NULL);
-		if (g_set.lights != LIGHTS_OFF) {
+		int m = led_mode(), ch = led_colour_choice();
+		add(1, MK_CHOICE, "Effect", LED_EFFECTS[m],
+		    m == 0 ? "No lights (the low battery and charging signs still show, if on)."
+		    : m >= 5 ? "The lights run through the colours by themselves."
+		    : "How the lights glow. Shared with Knulli's own menu.");
+		if (m >= 1 && m <= 4) {
+			add(2, MK_CHOICE, "Colour", led_colour_name(ch),
+			    ch == 0 ? "Each section in its Zappo's colour: Recent electric yellow, Favorites crystal purple, Consoles fire orange, "
+			              "Music water blue, Videos ice blue, Settings leaf green."
+			    : ch > LIGHT_COLOURS ? "Your own colour, mixed below (the same one Knulli's colour picker sets)."
+			    : "One colour everywhere. Shared with Knulli's own menu.");
+			if (ch > LIGHT_COLOURS) {
+				int c[3];
+				led_rgb(c);
+				static const char *RGB[] = {"  Red", "  Green", "  Blue"};
+				for (int i = 0; i < 3; i++) { snfmt(b, sizeof b, "%d", c[i]); add(6 + i, MK_CHOICE, RGB[i], b, NULL); }
+			}
+		}
+		if (m >= 5) {
+			snfmt(b, sizeof b, "%d", plat_conf_int("led.speed", 0));
+			add(9, MK_CHOICE, "Speed", b, "How fast the rainbow moves (0 to 100).");
+		}
+		if (m != 0) {
 			snfmt(b, sizeof b, "%d%%", plat_conf_int("led.brightness", 70));
-			add(4, MK_CHOICE, "Brightness", b, "Shared with Knulli's own light setting.");
+			add(4, MK_CHOICE, "Brightness", b, NULL);
 			add(5, MK_CHOICE, "Dim with the screen", onoff(plat_conf_int("led.brightness.adaptive", 1)),
 			    "The lights get dimmer and brighter with the screen.");
 		}
-		add(0, MK_INFO, "Low battery (yellow, then red) and charging still show on the lights.", "", NULL);
+		int low = plat_conf_int("led.battery.low", 20);
+		if (low > 0) snfmt(b, sizeof b, "Below %d%%", low); else sncpy(b, "Off", sizeof b);
+		add(10, MK_CHOICE, "Low battery warning", b, "The lights turn yellow when the battery gets this low, then red.");
+		add(11, MK_CHOICE, "Show charging", onoff(plat_conf_int("led.battery.charging", 1)), "The lights show when the charger is in.");
+		add(12, MK_CHOICE, "Achievement flash", onoff(plat_conf_int("led.retroachievements", 1)),
+		    "A flash on the lights when you unlock a RetroAchievement.");
+		add(0, MK_INFO, "Shared with Knulli's own menu: a change here shows there too.", "", NULL);
 		break;
 	}
 	case M_ACH: {
@@ -1833,19 +1931,21 @@ static void menu_build(int menu, int arg) {
 	case M_PICK: {
 		char g[300];
 		int guess = import_guess(pick_path, dir_exists(pick_path));
+		if (guess == pick_from) guess = -1;	/* (already there: no suggestion) */
 		if (guess >= 0) { snfmt(g, sizeof g, "Suggested: %s", data_sys_name(guess)); add(guess, MK_ACTION, g, "", "Zappo's best guess from the file."); }
 		/* the BIOS and Music folders come first only when that's the guess:
 		 * otherwise a quick A would put a game where no console finds it */
 		if (guess == IMPORT_TO_BIOS) add(IMPORT_TO_BIOS, MK_ACTION, "Suggested: BIOS folder", "", "For BIOS / firmware files the emulators need.");
 		if (guess == IMPORT_TO_MUSIC) add(IMPORT_TO_MUSIC, MK_ACTION, "Suggested: Music folder", "", "Songs and albums for the Music tab.");
+		if (guess == IMPORT_TO_HALO) add(IMPORT_TO_HALO, MK_ACTION, "Suggested: Halo's folder (ports/halo)", "", "An Xbox disc image for the Halo CE port.");
 		for (int i = 0; i < pick_n; i++) {
 			int s = pick_vis[i];
 			char cnt[32];
 			sys_count_label(s, cnt, sizeof cnt);
 			add(s, MK_ACTION, data_sys_name(s), cnt, NULL);
 		}
-		if (guess != IMPORT_TO_BIOS) add(IMPORT_TO_BIOS, MK_ACTION, "BIOS folder", "", "For BIOS / firmware files the emulators need.");
-		if (guess != IMPORT_TO_MUSIC) add(IMPORT_TO_MUSIC, MK_ACTION, "Music folder", "", "Songs and albums for the Music tab.");
+		if (pick_from < 0 && guess != IMPORT_TO_BIOS) add(IMPORT_TO_BIOS, MK_ACTION, "BIOS folder", "", "For BIOS / firmware files the emulators need.");
+		if (pick_from < 0 && guess != IMPORT_TO_MUSIC) add(IMPORT_TO_MUSIC, MK_ACTION, "Music folder", "", "Songs and albums for the Music tab.");
 		break;
 	}
 	case M_CLOCK: {
@@ -1875,12 +1975,22 @@ static void menu_build(int menu, int arg) {
 		add(0, MK_INFO, "Games run in RetroArch, at the tablet's own full speed either way.", "", NULL);
 		break;
 #endif
+#ifdef ZAPPO_KNULLI
+		if (g_set.menu_cpu > 0) snfmt(b, sizeof b, "%d MHz", g_set.menu_cpu / 1000); else sncpy(b, "Knulli's own", sizeof b);
+		add(1, MK_CHOICE, "Menu CPU limit", b,
+		    "The processor's top speed while browsing menus: a limit saves battery. Games aren't affected.");
+		snfmt(b, sizeof b, "%d MHz now, up to %d MHz", plat_cpu_cur() / 1000, plat_cpu_max() / 1000);
+		add(0, MK_INFO, b, "", NULL);
+		add(0, MK_INFO, "Games: Knulli sets the processor for each one itself (Knulli's menu > Game settings). Overclocking is a Knulli boot setting.", "", NULL);
+		break;
+#else
 		snfmt(b, sizeof b, "%d MHz", g_set.menu_cpu / 1000);
 		add(1, MK_CHOICE, "Menu CPU limit", b, "Lower saves battery while browsing. Games use their own speed.");
 		add(2, MK_ACTION, "Use recommended speeds", "", "Resets every system's CPU speed to Zappo's recommendation.");
 		add(3, MK_ACTION, "Use GarlicOS automatic everywhere", "", "Every game runs with GarlicOS's own interactive governor.");
 		add(4, MK_INFO, "Zappo never goes above 1.5 GHz, the top speed GarlicOS itself uses.", "", NULL);
 		break;
+#endif
 	case M_CONTROLS: {
 		add(1, MK_CHOICE, "Confirm button", g_set.swap_ab ? "B (Xbox style)" : "A (Nintendo style)", NULL);
 		add(2, MK_SUB, "Sensitivity", "", "How quickly a held button starts repeating, and how fast lists then scroll.");
@@ -1977,10 +2087,15 @@ static void menu_build(int menu, int arg) {
 		/* one line for how things stand (the list below doesn't jump about) */
 		if (net_busy()) snfmt(b, sizeof b, "%s...", net_job());
 		else if (net_last_error()[0]) sncpy(b, net_last_error(), sizeof b);
+		else if (ws.hybrid) sncpy(b, "Knulli's \"wireless hybrid fix\" is on: nothing can connect while it is", sizeof b);
 		else if (!ws.enabled) sncpy(b, "Wi-Fi is off", sizeof b);
 		else if (ws.connected) snfmt(b, sizeof b, "Connected to %s  -  %s", ws.ssid, ws.ip[0] ? ws.ip : "no address yet");
 		else sncpy(b, ws.known ? "Not connected" : "Checking...", sizeof b);
 		add(0, MK_INFO, b, "", NULL);
+		if (ws.hybrid)
+			add(3, MK_ACTION, "Switch off Knulli's \"wireless hybrid fix\"", "",
+			    "That Knulli service (Settings > Services) replaces the network manager with a bare "
+			    "join that never gets an address, so nothing can connect while it's on. A: put the network manager back.");
 		if (!ws.enabled) break;
 		WifiNet nets[16];
 		int k = net_wifi_list(nets, 16), saved = 0;
@@ -2046,6 +2161,20 @@ static void menu_build(int menu, int arg) {
 		add(1, MK_ACTION, "Rescan games", "", "Sorts the Import folder, then re-reads every Roms folder.");
 		add(3, MK_ACTION, "Sort the Import folder now", "", "Moves games from Import into their console folders.");
 #ifdef ZAPPO_KNULLI
+		{
+			char ver[64];
+			if (update_waiting(ver, sizeof ver)) {
+				snfmt(b, sizeof b, "Install the update (%s)", ver);
+				add(4, MK_ACTION, b, "", "The package sent to the Send to Zappo page. Zappo X restarts with it; this one is kept aside.");
+			}
+			add(6, MK_ACTION, "Check for updates on the internet", "",
+			    "Looks at Zappo X's releases on GitHub over Wi-Fi and downloads a newer one; it's installed only when you say so.");
+			if (net_busy() && !strncmp(net_job(), "Looking for", 11)) snfmt(b, sizeof b, "%s...", net_job());
+			else if (net_update_status()[0]) sncpy(b, net_update_status(), sizeof b);
+			else sncpy(b, "Updates also arrive from the Send to Zappo page (drop the package on it).", sizeof b);
+			add(0, MK_INFO, b, "", NULL);
+		}
+		add(5, MK_ACTION, "Save a report", "", "Writes zappo-x-report.txt to the SHARE card (logs, Wi-Fi, settings; no passwords) for working out problems.");
 		add(2, MK_ACTION, "Switch to Knulli's menu", "", "Zappo X steps aside and Knulli's own menu starts instead.");
 		add(0, MK_INFO, "Runs on Knulli, by the Knulli team (a Batocera fork).", "", NULL);
 #else
@@ -2066,7 +2195,7 @@ static void rescan(void) {
 	char codes[ARRAY_LEN(stack) + 1][32];
 	View *vs[ARRAY_LEN(stack) + 1];
 	int n = 0;
-	for (int i = 0; i < depth; i++) if (stack[i].type == V_LIST && stack[i].kind != LK_RECENT && stack[i].kind != LK_FAV && stack[i].sys >= 0 && stack[i].sys < g_nsys) { vs[n] = &stack[i]; sncpy(codes[n], g_sys[stack[i].sys].code, 32); n++; }
+	for (int i = 0; i < depth; i++) if (stack[i].type == V_LIST && stack[i].kind != LK_RECENT && stack[i].kind != LK_FAV && stack[i].kind != LK_NEW && stack[i].sys >= 0 && stack[i].sys < g_nsys) { vs[n] = &stack[i]; sncpy(codes[n], g_sys[stack[i].sys].code, 32); n++; }
 	if (v_video.type == V_LIST && v_video.sys >= 0 && v_video.sys < g_nsys) { vs[n] = &v_video; sncpy(codes[n], g_sys[v_video.sys].code, 32); n++; }
 	data_scan();
 	refresh_visible();
@@ -2082,7 +2211,7 @@ static void rescan(void) {
 	}
 	video_sys = data_sys_index("VIDEOS");
 	if (v_video.type == V_LIST) v_video.sys = video_sys;
-	for (int i = 0; i < depth; i++) if (stack[i].type == V_LIST && (stack[i].kind == LK_RECENT || stack[i].kind == LK_FAV)) load_list(&stack[i]);
+	for (int i = 0; i < depth; i++) if (stack[i].type == V_LIST && (stack[i].kind == LK_RECENT || stack[i].kind == LK_FAV || stack[i].kind == LK_NEW)) load_list(&stack[i]);
 	load_list(&v_recent);
 	load_list(&v_fav);
 	clamp_cursor(&v_recent.cur, v_recent.items.n, list_rows(), 1);
@@ -2148,6 +2277,7 @@ static void menu_change(View *mv, int id, int dir) {
 		if (id == 1) { net_wifi_power(!ws.enabled); dirty = 1; return; }
 		if (!activate) return;
 		if (id == 2) { net_wifi_refresh(1); dirty = 1; return; }
+		if (id == 3) { net_wifi_unhybrid(); dirty = 1; return; }
 		if (id >= 100) {
 			WifiNet nets[16];
 			int k = net_wifi_list(nets, 16), i = id - 100;
@@ -2175,9 +2305,44 @@ static void menu_change(View *mv, int id, int dir) {
 #ifdef ZAPPO_KNULLI
 	case M_LIGHTS:
 		switch (id) {
-		case 1: g_set.lights = cycle(g_set.lights, LIGHTS_COUNT, dir); break;
-		case 2: g_set.lights_colour = cycle(g_set.lights_colour, LIGHT_COLOURS, dir); break;
-		case 3: g_set.lights_effect = cycle(g_set.lights_effect, 4, dir); break;
+		case 1: {
+			char v[4];
+			snfmt(v, sizeof v, "%d", cycle(led_mode(), 7, dir));
+			plat_conf_set("led.mode", v);
+			break;
+		}
+		case 2: {
+			int ch = cycle(led_colour_choice(), LIGHT_COLOURS + 2, dir);
+			if (ch == 0) g_set.lights = LIGHTS_FOLLOW;
+			else {
+				g_set.lights = LIGHTS_KNULLI;
+				if (ch <= LIGHT_COLOURS) {
+					uint32_t x = plat_light_colours[ch - 1].rgb;
+					int c[3] = {(int)(x >> 16 & 255), (int)(x >> 8 & 255), (int)(x & 255)};
+					led_set_rgb(c);
+				} else {
+					/* your own mix: start from the colour that was showing, a step off the preset */
+					int c[3];
+					led_rgb(c);
+					c[0] = c[0] >= 15 ? c[0] - 15 : c[0] + 15;
+					led_set_rgb(c);
+				}
+			}
+			break;
+		}
+		case 6: case 7: case 8: {
+			int c[3];
+			led_rgb(c);
+			c[id - 6] = CLAMP(c[id - 6] + dir * 15, 0, 255);
+			led_set_rgb(c);
+			break;
+		}
+		case 9: {
+			char v[8];
+			snfmt(v, sizeof v, "%d", CLAMP(plat_conf_int("led.speed", 0) + dir * 10, 0, 100));
+			plat_conf_set("led.speed", v);
+			break;
+		}
 		case 4: {
 			char v[8];
 			snfmt(v, sizeof v, "%d", CLAMP((plat_conf_int("led.brightness", 70) / 10 + dir) * 10, 10, 100));
@@ -2185,6 +2350,14 @@ static void menu_change(View *mv, int id, int dir) {
 			break;
 		}
 		case 5: plat_conf_set("led.brightness.adaptive", plat_conf_int("led.brightness.adaptive", 1) ? "0" : "1"); break;
+		case 10: {
+			char v[8];
+			snfmt(v, sizeof v, "%d", CLAMP(plat_conf_int("led.battery.low", 20) + dir * 5, 0, 50));
+			plat_conf_set("led.battery.low", v);
+			break;
+		}
+		case 11: plat_conf_set("led.battery.charging", plat_conf_int("led.battery.charging", 1) ? "0" : "1"); break;
+		case 12: plat_conf_set("led.retroachievements", plat_conf_int("led.retroachievements", 1) ? "0" : "1"); break;
 		default: return;
 		}
 		plat_lights_apply();
@@ -2224,6 +2397,7 @@ static void menu_change(View *mv, int id, int dir) {
 		switch (id) {
 		case 18: g_set.video_wall = !g_set.video_wall; video_reclamp(); break;
 		case 22: g_set.motion = cycle(g_set.motion, 3, dir); dirty = 1; break;
+		case 23: g_set.motion_by = !g_set.motion_by; dirty = 1; break;
 		case 20: g_set.font_weight = cycle(g_set.font_weight, 3, dir); font_set_weight(g_set.font_weight); dirty = 1; break;
 		case 19: push_menu(M_SYSTEMS, 0); return;
 		case 1: {
@@ -2302,12 +2476,13 @@ static void menu_change(View *mv, int id, int dir) {
 	case M_PICK: {
 		if (!activate) return;
 		char err[256];
-		const char *where = id == IMPORT_TO_BIOS ? "BIOS" : id == IMPORT_TO_MUSIC ? "Music" : data_sys_name(id);
+		const char *where = id == IMPORT_TO_BIOS ? "BIOS" : id == IMPORT_TO_MUSIC ? "Music" : id == IMPORT_TO_HALO ? "Halo's folder" : data_sys_name(id);
 		char wherebuf[96];
 		sncpy(wherebuf, where, sizeof wherebuf);
-		if (import_move(pick_path, id, err, sizeof err) != 0) { toast("%s", err[0] ? err : "Could not move it"); return; }
+		if (move_with_notice(pick_path, id, err, sizeof err) != 0) { toast("%s", err[0] ? err : "Could not move it"); return; }
 		if (id >= 0) { ImportResult one = {0}; one.moved = 1; art_after_import(&one); }
-		pop_view(); /* back to the Import list */
+		pop_view(); /* back to the list it came from */
+		if (pick_from >= 0) data_recent_remove(pick_path);
 		rescan();
 		View *lv = top();
 		if (lv->type == V_LIST) {
@@ -2419,11 +2594,15 @@ static void menu_change(View *mv, int id, int dir) {
 		return;
 #endif
 		if (id == 1) {
+#ifdef ZAPPO_KNULLI
+			static const int M[] = {0, 720000, 1008000, 1200000, 1416000};
+#else
 			static const int M[] = {504000, 720000, 1008000};
-			int cur = 2;
-			for (int i = 0; i < 3; i++) if (M[i] == g_set.menu_cpu) cur = i;
-			g_set.menu_cpu = M[cycle(cur, 3, dir)];
-			plat_cpu_set(NULL, g_set.menu_cpu, 0);
+#endif
+			int cur = ARRAY_LEN(M) - 1;
+			for (int i = 0; i < ARRAY_LEN(M); i++) if (M[i] == g_set.menu_cpu) cur = i;
+			g_set.menu_cpu = M[cycle(cur, ARRAY_LEN(M), dir)];
+			plat_cpu_set(NULL, g_set.menu_cpu > 0 ? g_set.menu_cpu : plat_cpu_max(), 0);
 		} else if (id == 2 && activate) {
 			for (int i = 0; i < g_nsys; i++) { cJSON *o = settings_system(g_sys[i].code, 0); if (o) cJSON_DeleteItemFromObjectCaseSensitive(o, "cpu"); }
 			toast("Every system now uses its recommended speed");
@@ -2572,8 +2751,50 @@ static void menu_change(View *mv, int id, int dir) {
 			ov_add("Cancel", OA_CANCEL);
 			ov_add("Switch to " FW_NAME, OA_YES);
 		}
+#ifdef ZAPPO_KNULLI
+		if (id == 4) {
+			char ver[64];
+			update_waiting(ver, sizeof ver);
+			char q[160];
+			snfmt(q, sizeof q, "Install %s now? Zappo X restarts with it.", ver);
+			open_overlay(OV_CONFIRM, q);
+			ov.confirm_action = 1006;
+			ov_add("Cancel", OA_CANCEL);
+			ov_add("Install", OA_YES);
+		}
+		if (id == 6) {
+			WifiStatus ws;
+			net_wifi_status(&ws);
+			if (!ws.connected) { toast("Wi-Fi first: the handheld isn't on a network"); return; }
+			if (net_busy()) { toast("One moment: %s", net_job()); return; }
+			net_update_check();
+			dirty = 1;
+		}
+		if (id == 5) {
+			char cmd[600];
+			snfmt(cmd, sizeof cmd, "sh '%s/zappo-report.sh' '%s/report.txt' && cp '%s/report.txt' /userdata/zappo-x-report.txt; sync",
+			      g_paths.clove, g_paths.clove, g_paths.clove);
+			int rc = system(cmd);
+			toast(rc == 0 ? "Report saved: zappo-x-report.txt on the SHARE card" : "Couldn't write the report");
+		}
+#endif
 		return;
 	}
+}
+
+/* a Zappo X package waiting in /userdata/system/zappo-x-update (the Send to
+ * Zappo page puts it there); ver gets what it says it is */
+static int update_waiting(char *ver, size_t n) {
+	if (n) ver[0] = 0;
+#ifdef ZAPPO_KNULLI
+	if (!file_exists("/userdata/system/zappo-x-update/zappo-x-knulli.tar")) return 0;
+	char *v = file_read_all("/userdata/system/zappo-x-update/zappo-x-knulli.tar.version", NULL);
+	if (v) { v[strcspn(v, "\r\n")] = 0; sncpy(ver, *v ? v : "unknown version", n); free(v); }
+	else sncpy(ver, "unknown version", n);
+	return 1;
+#else
+	return 0;
+#endif
 }
 
 /* Send to Zappo: the address (and its QR code) for a phone or PC on the same
@@ -2620,6 +2841,12 @@ static void draw_send(void) {
 		int ry = ly + i * (font_height(F_SMALL) + 4);
 		gfx_rrect(x + 4, ry + font_height(F_SMALL) / 2 - 4, 8, 8, 4, g_theme.accent); /* arrived */
 		text_draw_fit(F_SMALL, x + 20, ry, w - 24, names[i], g_theme.text, 0);
+	}
+	char ver[64];
+	if (update_waiting(ver, sizeof ver)) {
+		char m[160];
+		snfmt(m, sizeof m, "Update %s has arrived: Settings > About > Install the update.", ver);
+		text_draw_fit(F_SMALL, x + 4, ly + (k ? k : 1) * (font_height(F_SMALL) + 4) + 6, w - 8, m, g_theme.accent, 0);
 	}
 }
 
@@ -3002,7 +3229,8 @@ static void ui_render_frame(void) {
 		}
 	} else if (v->type == V_LIST) {
 		char title[160];
-		if (v->dir[0]) snfmt(title, sizeof title, "%s \xE2\x80\xBA %s", data_sys_name(v->sys), path_base(v->dir));
+		if (v->kind == LK_NEW) sncpy(title, "New & out of place", sizeof title);
+		else if (v->dir[0]) snfmt(title, sizeof title, "%s \xE2\x80\xBA %s", data_sys_name(v->sys), path_base(v->dir));
 		else sncpy(title, data_sys_name(v->sys), sizeof title);
 		draw_topbar(title);
 		if (v->kind == LK_VIDEO) draw_videos(v);
@@ -3010,8 +3238,11 @@ static void ui_render_frame(void) {
 		h[nh++] = (Hint){back_btn(), "Back"};
 		if (v->kind == LK_VIDEO) {
 			nh += video_hints(h + nh, v);
-		} else if (v->items.n && g_sys[v->sys].is_import) {
+		} else if (v->items.n && v->sys >= 0 && g_sys[v->sys].is_import) {
 			h[nh++] = (Hint){confirm_btn(), "Choose console"};
+		} else if (v->items.n && v->items.v[v->cur.sel].misplaced) {
+			h[nh++] = (Hint){confirm_btn(), "Move to its console"};
+			h[nh++] = (Hint){"Y", "Sort all"};
 		} else if (v->items.n) {
 			if (!v->items.v[v->cur.sel].is_dir) {
 				h[nh++] = (Hint){"X", "Options"};
@@ -3088,6 +3319,8 @@ static void game_options(View *v) {
 	ov_add(e->fav ? "Remove from favorites" : "Add to favorites", OA_FAV);
 	if (v->kind == LK_RECENT) ov_add("Remove from recent", OA_UNRECENT);
 	if (e->sys >= 0) ov_add("Console settings", OA_SYSSET);
+	/* a game in the wrong folder: offered for games on this card (the stock card is never written) */
+	if (e->sys >= 0 && !g_sys[e->sys].is_import && !strncmp(e->path, g_paths.mmc, strlen(g_paths.mmc))) ov_add("Move to another console", OA_MOVE);
 	ov_add("Cancel", OA_CANCEL);
 }
 
@@ -3105,10 +3338,11 @@ static void toggle_fav(View *v) {
 
 static void open_pick(const Entry *e) {
 	sncpy(pick_path, e->path, sizeof pick_path);
+	pick_from = e->sys;
 	pick_n = 0;
 	for (int pass = 0; pass < 2; pass++)
 		for (int i = 0; i < g_nsys && pick_n < ARRAY_LEN(pick_vis); i++) {
-			if (g_sys[i].is_import || (!g_sys[i].on_tf1 && !g_sys[i].on_tf2)) continue;
+			if (g_sys[i].is_import || i == pick_from || (!g_sys[i].on_tf1 && !g_sys[i].on_tf2)) continue;
 			if ((pass == 0) != (g_sys[i].count > 0)) continue;
 			pick_vis[pick_n++] = i;
 		}
@@ -3147,9 +3381,23 @@ static void list_button(View *v, int b) {
 	case B_A:
 		if (!n) break;
 		if (v->items.v[v->cur.sel].is_dir) push_list(v->items.v[v->cur.sel].sys, v->items.v[v->cur.sel].path);
+		else if (v->items.v[v->cur.sel].misplaced) open_pick(&v->items.v[v->cur.sel]);
 		else launch_entry(&v->items.v[v->cur.sel], v->kind);
 		break;
-	case B_Y: toggle_fav(v); break;
+	case B_Y:
+		if (v->kind == LK_NEW && n && v->items.v[v->cur.sel].misplaced) {
+			int k = 0;
+			for (int i = 0; i < n; i++) k += v->items.v[i].misplaced;
+			char q[160];
+			snfmt(q, sizeof q, "Move %d out-of-place file%s to the console%s Zappo suggests? Zipped discs are unpacked.", k, k == 1 ? "" : "s", k == 1 ? "" : "s");
+			open_overlay(OV_CONFIRM, q);
+			ov.confirm_action = 1007;
+			ov_add("Cancel", OA_CANCEL);
+			ov_add("Move them", OA_YES);
+			break;
+		}
+		toggle_fav(v);
+		break;
 	case B_X: game_options(v); break;
 	case B_SELECT:
 		g_set.game_layout = (effective_game_layout() + 1) % GL_COUNT;
@@ -3261,6 +3509,18 @@ static void overlay_button(int b) {
 		break;
 	}
 	case OA_SEARCH: search_open(); break;
+	case OA_NEW:
+		if (depth < ARRAY_LEN(stack)) {
+			View *nv = &stack[depth++];
+			memset(nv, 0, sizeof *nv);
+			nv->type = V_LIST;
+			nv->kind = LK_NEW;
+			nv->sys = -1;
+			load_list(nv);
+			nv->sel_time = plat_ticks();
+			dirty = 1;
+		}
+		break;
 	case OA_SURPRISE: surprise_me(); break;
 	case OA_NOWPLAY:
 		for (int g = 0; g < 16 && top()->type != V_HOME; g++) {
@@ -3280,6 +3540,13 @@ static void overlay_button(int b) {
 		toast("Removed from recent");
 		break;
 	case OA_SYSSET: core_opts_sys = -1; push_menu(M_SYSTEM, ov.sys); break;
+	case OA_MOVE: {
+		Entry e = {0};
+		sncpy(e.path, ov.path, sizeof e.path);
+		e.sys = ov.sys;
+		open_pick(&e);
+		break;
+	}
 	case OA_SETTINGS:
 		if (top()->type == V_HOME) enter_tab(TAB_SETTINGS);
 		else push_menu(M_ROOT, 0);
@@ -3312,9 +3579,33 @@ static void overlay_button(int b) {
 		}
 		if (ov.confirm_action == 1004) music_delete_playlist(ov.sys);
 		if (ov.confirm_action == 1005) net_wifi_forget(&wifi_forget);
+		if (ov.confirm_action == 1007) {	/* everything out of place to its console */
+			View *lv = top();
+			int moved = 0, failed = 0;
+			if (lv->type == V_LIST && lv->kind == LK_NEW)
+				for (int i = 0; i < lv->items.n; i++) {
+					Entry *e = &lv->items.v[i];
+					if (!e->misplaced) continue;
+					int g = import_guess(e->path, 0);
+					char err[200];
+					if (g >= 0 && move_with_notice(e->path, g, err, sizeof err) == 0) { moved++; data_recent_remove(e->path); }
+					else failed++;
+				}
+			if (moved) { ImportResult one = {0}; one.moved = moved; art_after_import(&one); }
+			rescan();
+			if (lv->type == V_LIST) { load_list(lv); clamp_cursor(&lv->cur, lv->items.n, list_rows(), 1); }
+			if (failed) toast("%d moved, %d couldn't be", moved, failed); else toast("%d moved to their consoles", moved);
+		}
 		if (ov.confirm_action == 1003 && pend_sys >= 0) {
-			Entry e = {pend_name, pend_path, pend_sys, 0, 0};
+			Entry e = {pend_name, pend_path, pend_sys, 0, 0, 0};
 			launch_now(&e, pend_kind);
+		}
+		if (ov.confirm_action == 1006) {	/* install the update: the start loop does it once Zappo X has quit */
+			char p[512];
+			snfmt(p, sizeof p, "%s/update-now", g_paths.clove);
+			file_write_all(p, "install\n", 8);
+			save_now();
+			g_state = UI_QUIT;
 		}
 		if (ov.confirm_action == 1002) {
 			char p[512];
@@ -3386,6 +3677,7 @@ static void handle_button(int b, int repeat) {
 		}
 		if (top()->type != V_SEARCH) ov_add("Search", OA_SEARCH);
 		ov_add("Surprise me (a random game)", OA_SURPRISE);
+		if (!(top()->type == V_LIST && top()->kind == LK_NEW)) ov_add("New & out of place", OA_NEW);
 		if (top()->type != V_SHOTS) ov_add("Screenshots", OA_SHOTS);
 		ov_add("Settings", OA_SETTINGS);
 		ov_add("Lock screen", OA_SLEEP);
@@ -3422,7 +3714,7 @@ static void handle_button(int b, int repeat) {
 	}
 	if (b == B_B && !repeat) { pop_view(); return; }
 	if (v->type == V_LIST) {
-		if (b == B_START && !repeat) { if (!g_sys[v->sys].is_import) { core_opts_sys = -1; push_menu(M_SYSTEM, v->sys); } return; }
+		if (b == B_START && !repeat) { if (v->sys >= 0 && !g_sys[v->sys].is_import) { core_opts_sys = -1; push_menu(M_SYSTEM, v->sys); } return; }
 		if (v->kind == LK_VIDEO) video_button(v, b);
 		else list_button(v, b);
 	} else if (v->type == V_MENU) {
